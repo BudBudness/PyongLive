@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pyonglive-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-13",
+  "workers_dev": true,
+  "vars": {
+    "STREAM_CUSTOMER_CODE": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pyonglive-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ASSETS",
+      "bucket_name": "pyonglive-assets"
+    }
+  ]
+}
