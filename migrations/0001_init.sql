@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS events (
   started_at TEXT,
   ended_at TEXT,
   stream_uid TEXT UNIQUE,
+  replay_uid TEXT UNIQUE,
   playback_url TEXT
 );
 
