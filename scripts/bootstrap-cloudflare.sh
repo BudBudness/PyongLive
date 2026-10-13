@@ -46,13 +46,10 @@ fs.writeFileSync(p,s);
 '
 
 printf '\nChecking R2 bucket...\n'
-R2_EXISTS="$(npx wrangler r2 bucket list --json 2>/dev/null | node -e '
-let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
- try {
-  const x=JSON.parse(s); const rows=Array.isArray(x)?x:(x.result||x.buckets||[]);
-  process.stdout.write(rows.some(v=>v.name==="pyonglive-assets")?"yes":"no");
- } catch { process.stdout.write("unknown"); }
-});')"
+R2_EXISTS="no"
+if npx wrangler r2 bucket list 2>/dev/null | grep -Fq 'pyonglive-assets'; then
+  R2_EXISTS="yes"
+fi
 if [[ "$R2_EXISTS" != "yes" ]]; then
   npx wrangler r2 bucket create pyonglive-assets || fail "Could not create R2 bucket. Check bucket list and account permissions."
 fi
