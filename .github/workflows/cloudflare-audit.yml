@@ -1,0 +1,56 @@
+name: Cloudflare Resource Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required configuration
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CF_API_TOKEN" || { echo "::error::Add repository secret CLOUDFLARE_API_TOKEN with read-only Cloudflare permissions."; exit 1; }
+          test -n "$CF_ACCOUNT_ID" || { echo "::error::Add repository variable CF_ACCOUNT_ID with the Cloudflare account ID."; exit 1; }
+
+      - name: Audit D1 and R2 resources (read-only)
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          d1_json="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database")"
+          r2_json="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CF_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/r2/buckets")"
+
+          echo "D1 database inventory:"
+          echo "$d1_json" | jq -r '
+            if .success != true then error("Cloudflare D1 API request failed") else
+            (.result[] | [.name, .uuid] | @tsv) end' | tee /tmp/d1.tsv
+          echo "R2 bucket inventory:"
+          echo "$r2_json" | jq -r '
+            if .success != true then error("Cloudflare R2 API request failed") else
+            (.result.buckets[]? | .name) end' | tee /tmp/r2.txt
+
+          if awk -F '\t' '$1 == "pyonglive-db" { found=1; print "MATCHED_D1_ID=" $2 } END { exit !found }' /tmp/d1.tsv; then
+            echo "D1 database pyonglive-db exists."
+          else
+            echo "::error::D1 database pyonglive-db was not found."
+            exit 1
+          fi
+
+          if grep -Fxq "pyonglive-assets" /tmp/r2.txt; then
+            echo "R2 bucket pyonglive-assets exists."
+          else
+            echo "::error::R2 bucket pyonglive-assets was not found."
+            exit 1
+          fi
