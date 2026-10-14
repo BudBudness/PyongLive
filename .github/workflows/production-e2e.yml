@@ -2,6 +2,10 @@ name: PyongLive Production End-to-End Broadcast Test
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/production-e2e.yml"
 
 permissions:
   contents: read
@@ -28,7 +32,7 @@ jobs:
           ADMIN_API_TOKEN: ${{ secrets.PYONGLIVE_ADMIN_API_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$ADMIN_API_TOKEN" || { echo "::error::Add the Worker admin token as repository secret PYONGLIVE_ADMIN_API_TOKEN. Do not use a Cloudflare account API token here."; exit 1; }
+          test -n "$ADMIN_API_TOKEN" || { echo "::error::Missing repository secret PYONGLIVE_ADMIN_API_TOKEN (the Worker ADMIN_API_TOKEN)."; exit 1; }
 
           node --input-type=module <<'NODE'
           import { spawn } from "node:child_process";
@@ -55,7 +59,6 @@ jobs:
           }
 
           let eventId;
-          let liveInputUid;
           let ffmpeg;
           let primaryError;
           try {
@@ -76,7 +79,6 @@ jobs:
             console.log("PASS: event created and persisted in D1.");
 
             const started = await api(`/api/events/${eventId}/start`, { method: "POST" });
-            liveInputUid = started.ingest?.streamKey ? started.eventId : null;
             if (started.status !== "live" || !started.ingest?.url || !started.ingest?.streamKey) throw new Error("Start endpoint did not return live ingest credentials");
             if (!started.playbackUrl) throw new Error("Worker STREAM_CUSTOMER_CODE is missing; cannot verify viewer playback");
             console.log("PASS: production Worker created a Stream live input and returned private ingest credentials.");
@@ -86,37 +88,40 @@ jobs:
               "-hide_banner", "-loglevel", "error", "-re",
               "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24",
               "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100",
-              "-t", "35", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+              "-t", "180", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
               "-pix_fmt", "yuv420p", "-g", "48", "-c:a", "aac", "-b:a", "96k",
               "-f", "flv", publishUrl
             ], { stdio: ["ignore", "ignore", "ignore"] });
 
-            await waitFor("synthetic video/audio published to Cloudflare Stream", async () => {
+            await waitFor("live viewer HLS manifest reachable while publishing", async () => {
               if (ffmpeg.exitCode !== null) throw new Error(`FFmpeg exited early (${ffmpeg.exitCode})`);
               const response = await fetch(started.playbackUrl);
-              return response.ok && (await response.text()).includes("#EXTM3U");
+              if (!response.ok) return false;
+              const body = await response.text();
+              return body.includes("#EXTM3U") && body.includes("#EXTINF");
             }, 12, 5000);
 
+            console.log("PASS: viewer playback manifest is reachable during the live broadcast.");
             await new Promise((resolve, reject) => {
-              const timeout = setTimeout(resolve, 38000);
+              const timeout = setTimeout(() => reject(new Error("FFmpeg publish exceeded expected duration")), 195000);
               ffmpeg.once("error", error => { clearTimeout(timeout); reject(error); });
               ffmpeg.once("exit", code => { clearTimeout(timeout); code === 0 ? resolve() : reject(new Error(`FFmpeg exited with code ${code}`)); });
             });
             ffmpeg = null;
 
-            const publicEvent = await api(`/api/events/${eventId}`, { headers: {} });
-            if (publicEvent.event?.status !== "live") throw new Error("Event status was not persisted as live");
-            console.log("PASS: event live state persisted in D1.");
+            const liveEvent = await api(`/api/events/${eventId}`);
+            if (liveEvent.event?.status !== "live") throw new Error("Event live state was not persisted in D1");
+            console.log("PASS: live event state persisted in D1.");
 
             await api(`/api/events/${eventId}/end`, { method: "POST" });
-            console.log("PASS: broadcast ended through the production API.");
+            console.log("PASS: event ended through the production API.");
 
             await waitFor("recording processed and replay persisted", async () => {
-              const replay = await api(`/api/events/${eventId}/replay`, { headers: {} });
-              if (replay.status !== "ready" || !replay.playerUrl) return false;
+              const replay = await api(`/api/events/${eventId}/replay`);
+              if (replay.status !== "ready" || !replay.playerUrl || !replay.playbackUrl) return false;
               const response = await fetch(replay.playbackUrl);
               if (!response.ok || !(await response.text()).includes("#EXTM3U")) return false;
-              console.log("PASS: viewer replay manifest is reachable.");
+              console.log("PASS: replay manifest is reachable.");
               return true;
             }, 18, 10000);
           } catch (error) {
@@ -129,7 +134,7 @@ jobs:
             }
             if (eventId) {
               try {
-                const event = await api(`/api/events/${eventId}`, { headers: {} });
+                const event = await api(`/api/events/${eventId}`);
                 if (event.event?.status === "live") await api(`/api/events/${eventId}/end`, { method: "POST" });
                 console.log(`E2E event retained for inspection: ${eventId}`);
               } catch (error) {
