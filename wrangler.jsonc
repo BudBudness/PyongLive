@@ -8,7 +8,7 @@
     {
       "binding": "DB",
       "database_name": "pyonglive-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "23bcd209-8b76-4c0c-978f-872258bb61b9",
       "migrations_dir": "migrations"
     }
   ],
