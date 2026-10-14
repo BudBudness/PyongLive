@@ -1,0 +1,65 @@
+name: PyongLive Stream Input Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stream-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify production API health
+        run: |
+          set -euo pipefail
+          body="$(curl --fail --silent --show-error https://pyonglive-api.eddiebillions85.workers.dev/health)"
+          echo "$body"
+          echo "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);if(x.ok!==true||x.service!=="pyonglive-api")process.exit(1);})'
+          echo "PASS: production health endpoint."
+
+      - name: Create and delete a temporary Cloudflare Stream live input
+        env:
+          CF_STREAM_EDIT_TOKEN: ${{ secrets.CF_STREAM_EDIT_TOKEN }}
+          CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$CF_STREAM_EDIT_TOKEN" || { echo "::error::Add repository secret CF_STREAM_EDIT_TOKEN with Cloudflare Stream Edit permission."; exit 1; }
+          test -n "$CF_ACCOUNT_ID" || { echo "::error::CF_ACCOUNT_ID is missing."; exit 1; }
+
+          node --input-type=module <<'NODE'
+          const base = `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}/stream/live_inputs`;
+          const headers = { authorization: `Bearer ${process.env.CF_STREAM_EDIT_TOKEN}`, "content-type": "application/json" };
+          let uid;
+          try {
+            const created = await fetch(base, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                meta: { name: `PyongLive automated smoke test ${new Date().toISOString()}` },
+                recording: { mode: "off", requireSignedURLs: false }
+              })
+            });
+            const payload = await created.json();
+            if (!created.ok || payload.success !== true || !payload.result?.uid) {
+              const errors = (payload.errors ?? []).map(e => e.message).filter(Boolean).join("; ");
+              throw new Error(`Live input creation failed (${created.status}): ${errors || "Cloudflare API returned success=false"}`);
+            }
+            uid = payload.result.uid;
+            console.log("PASS: Cloudflare Stream live input created; UID returned.");
+            if (!payload.result.rtmps?.url || !payload.result.rtmps?.streamKey) {
+              throw new Error("Live input was created but RTMPS ingest credentials were missing.");
+            }
+            console.log("PASS: RTMPS ingest URL and stream key returned (values intentionally not logged).");
+          } finally {
+            if (uid) {
+              const deleted = await fetch(`${base}/${encodeURIComponent(uid)}`, { method: "DELETE", headers });
+              const result = await deleted.json().catch(() => ({}));
+              if (!deleted.ok || result.success !== true) {
+                const errors = (result.errors ?? []).map(e => e.message).filter(Boolean).join("; ");
+                throw new Error(`Cleanup failed for temporary live input ${uid}: ${errors || deleted.status}`);
+              }
+              console.log("PASS: temporary live input deleted.");
+            }
+          }
+          NODE
