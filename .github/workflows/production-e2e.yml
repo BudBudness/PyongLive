@@ -38,7 +38,11 @@ jobs:
           import { spawn } from "node:child_process";
 
           const base = process.env.API_BASE;
-          const auth = { authorization: `Bearer ${process.env.ADMIN_API_TOKEN}`, "content-type": "application/json" };
+          // GitHub secrets may accidentally include surrounding CR/LF from terminal copy/paste.
+          const adminToken = (process.env.ADMIN_API_TOKEN ?? "").trim();
+          if (!adminToken) throw new Error("ADMIN_API_TOKEN is empty after trimming; check PYONGLIVE_ADMIN_API_TOKEN.");
+          console.log(`Admin token present (length ${adminToken.length}); value is never logged.`);
+          const auth = { authorization: `Bearer ${adminToken}`, "content-type": "application/json" };
           const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
           async function api(path, options = {}) {
             const response = await fetch(base + path, { ...options, headers: { ...auth, ...(options.headers ?? {}) } });
