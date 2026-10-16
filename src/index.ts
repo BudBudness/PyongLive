@@ -49,8 +49,11 @@ function publicEvent(event: EventRecord) {
 
 function requireAdmin(request: Request, env: Env): Response | null {
   const authorization = request.headers.get("authorization") ?? "";
-  const supplied = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-  if (!env.ADMIN_API_TOKEN || !supplied || supplied !== env.ADMIN_API_TOKEN) {
+  // Secrets copied from terminals or dashboards may contain trailing CR/LF.
+  // Normalize only surrounding whitespace; never alter the token's interior.
+  const supplied = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+  const expected = env.ADMIN_API_TOKEN?.trim() ?? "";
+  if (!expected || !supplied || supplied !== expected) {
     return json({ error: "Unauthorized" }, 401);
   }
   return null;
