@@ -49,6 +49,15 @@ jobs:
             exit 1
           fi
           echo "PASS: token can access Workers Scripts in configured account."
+          service="$(curl -sS -w '\n%{http_code}' "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/workers/services/pyonglive-api" -H "Authorization: Bearer $CF_API_TOKEN")"
+          service_code="$(printf '%s\n' "$service" | tail -n1)"
+          service_body="$(printf '%s\n' "$service" | sed '$d')"
+          if [[ "$service_code" != "200" ]]; then
+            echo "::error::Token can list Workers Scripts but cannot access the existing pyonglive-api service (HTTP $service_code). Grant Workers Scripts Edit for the exact Worker pyonglive-api, or use an account-scoped token with Workers Scripts Edit on this account."
+            printf '%s' "$service_body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{for(const e of (JSON.parse(s).errors||[]))console.log("Cloudflare API: "+e.message)}catch{}})'
+            exit 1
+          fi
+          echo "PASS: token can access pyonglive-api service metadata."
 
       - name: Install dependencies and typecheck
         run: |
