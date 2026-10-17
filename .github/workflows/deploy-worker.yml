@@ -35,9 +35,20 @@ jobs:
           CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          test -n "$CF_API_TOKEN" || { echo "::error::Missing repository secret CLOUDFLARE_API_TOKEN. Create a Cloudflare API token with Account > Workers Scripts > Edit for the PyongLive account."; exit 1; }
-          test -n "$CF_ACCOUNT_ID" || { echo "::error::Missing repository variable CF_ACCOUNT_ID. Set it to the 32-character Cloudflare account ID."; exit 1; }
+          test -n "$CF_API_TOKEN" || { echo "::error::Missing repository secret CLOUDFLARE_API_TOKEN."; exit 1; }
+          test -n "$CF_ACCOUNT_ID" || { echo "::error::Missing repository variable CF_ACCOUNT_ID."; exit 1; }
           [[ "$CF_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]] || { echo "::error::CF_ACCOUNT_ID must be 32 hexadecimal characters."; exit 1; }
+          verify="$(curl -sS https://api.cloudflare.com/client/v4/user/tokens/verify -H "Authorization: Bearer $CF_API_TOKEN")"
+          echo "$verify" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const x=JSON.parse(s);if(!x.success||x.result?.status!=="active"){console.error("::error::Cloudflare API token verification failed or token is not active.");process.exit(1)}console.log("PASS: Cloudflare API token is active.")}catch{console.error("::error::Cloudflare token verification returned invalid JSON.");process.exit(1)}})'
+          scripts="$(curl -sS -w '\n%{http_code}' "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/workers/scripts" -H "Authorization: Bearer $CF_API_TOKEN")"
+          code="$(printf '%s\n' "$scripts" | tail -n1)"
+          body="$(printf '%s\n' "$scripts" | sed '$d')"
+          if [[ "$code" != "200" ]]; then
+            echo "::error::Cloudflare token cannot list Workers Scripts in the configured account (HTTP $code). Check token account scope and Workers Scripts permissions. Token value was not printed."
+            printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{for(const e of (JSON.parse(s).errors||[]))console.log("Cloudflare API: "+e.message)}catch{}})'
+            exit 1
+          fi
+          echo "PASS: token can access Workers Scripts in configured account."
 
       - name: Install dependencies and typecheck
         run: |
@@ -50,17 +61,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
         run: npx wrangler deploy
 
-      - name: Verify production health
+      - name: Verify production health and events API
         run: |
           set -euo pipefail
           for attempt in $(seq 1 12); do
-            if curl --fail --silent --show-error https://pyonglive-api.eddiebillions85.workers.dev/health -o /tmp/health.json; then
-              if node -e 'const x=require("/tmp/health.json");process.exit(x.ok===true&&x.service==="pyonglive-api"?0:1)'; then
-                echo "PASS: deployed production Worker health check."
-                exit 0
-              fi
+            if curl --fail --silent --show-error https://pyonglive-api.eddiebillions85.workers.dev/health -o /tmp/health.json &&
+               node -e 'const x=require("/tmp/health.json");process.exit(x.ok===true&&x.service==="pyonglive-api"?0:1)'; then
+              break
             fi
+            if [[ "$attempt" == "12" ]]; then echo "::error::Production health check failed."; exit 1; fi
             sleep 5
           done
-          echo "::error::Production health check did not pass after deployment."
-          exit 1
+          curl --fail --silent --show-error https://pyonglive-api.eddiebillions85.workers.dev/api/events -o /tmp/events.json
+          node -e 'const x=require("/tmp/events.json");if(!Array.isArray(x.events))process.exit(1);console.log("PASS: production events API returned valid JSON with "+x.events.length+" events.")'
