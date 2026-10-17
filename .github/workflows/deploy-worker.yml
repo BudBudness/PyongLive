@@ -2,6 +2,14 @@ name: Deploy PyongLive Worker
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-worker.yml"
+      - "src/**"
+      - "wrangler.jsonc"
+      - "package.json"
+      - "package-lock.json"
 
 permissions:
   contents: read
@@ -20,7 +28,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Validate deployment credentials
         env:
@@ -34,7 +41,7 @@ jobs:
 
       - name: Install dependencies and typecheck
         run: |
-          npm ci
+          npm install
           npm run typecheck
 
       - name: Deploy Worker
