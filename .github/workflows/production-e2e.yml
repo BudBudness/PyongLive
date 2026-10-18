@@ -135,7 +135,31 @@ jobs:
               ffmpegStderr = (ffmpegStderr + safeChunk).slice(-10000);
             });
 
+            let lastInputStatus = null;
             await waitFor("live viewer HLS manifest reachable while publishing", async () => {
+              if (streamUid && process.env.CF_ACCOUNT_ID && process.env.CF_STREAM_EDIT_TOKEN) {
+                try {
+                  const statusResponse = await fetch(
+                    `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}/stream/live_inputs/${streamUid}`,
+                    { headers: { authorization: `Bearer ${process.env.CF_STREAM_EDIT_TOKEN}` } }
+                  );
+                  const statusPayload = await statusResponse.json().catch(() => ({}));
+                  const currentStatus = {
+                    httpStatus: statusResponse.status,
+                    success: statusPayload.success,
+                    status: statusPayload.result?.status ?? null,
+                    enabled: statusPayload.result?.enabled ?? null,
+                    errors: (statusPayload.errors ?? []).map(item => ({ code: item.code, message: item.message }))
+                  };
+                  const signature = JSON.stringify(currentStatus);
+                  if (signature !== lastInputStatus) {
+                    console.log("Cloudflare ingest state changed:", signature);
+                    lastInputStatus = signature;
+                  }
+                } catch (statusError) {
+                  console.log("Cloudflare ingest state poll failed:", statusError.message);
+                }
+              }
               if (ffmpeg.exitCode !== null) {
                 const detail = ffmpegStderrHead.trim() + "\n--- FFmpeg stderr tail ---\n" + ffmpegStderr.trim();
                 throw new Error(`FFmpeg exited early (${ffmpeg.exitCode})${detail ? `; stderr: ${detail}` : "; no FFmpeg stderr captured"}`);
