@@ -15,5 +15,24 @@ services:
       timeout: 5s
       retries: 3
 
+  recording-index:
+    image: node:22-alpine
+    container_name: pyonglive-recording-index
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "recording-index.mjs"]
+    environment:
+      PORT: "8090"
+      RECORDINGS_DIR: /recordings
+      INDEX_TOKEN: ${MEDIAMTX_RECORDING_INDEX_TOKEN:-}
+      PUBLIC_BASE_URL: ${PUBLIC_RECORDINGS_BASE_URL:-}
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - ./recording-index.mjs:/app/recording-index.mjs:ro
+      - pyonglive-recordings:/recordings:ro
+    depends_on:
+      - mediamtx
+
 volumes:
   pyonglive-recordings:
