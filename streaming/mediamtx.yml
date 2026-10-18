@@ -12,16 +12,8 @@ rtmpAddress: :1935
 
 hls: true
 hlsAddress: :8888
-hlsAllowOrigins: ['*']
+hlsAllowOrigins: ["*"]
 hlsVariant: fmp4
-
-# Record every published path to the persistent Docker volume.
-record: true
-recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
-recordFormat: fmp4
-recordPartDuration: 1s
-recordMaxPartSize: 50M
-recordDeleteAfter: 72h
 
 # Anonymous viewers may read HLS. Publishing requires credentials.
 authMethod: internal
@@ -31,10 +23,22 @@ authInternalUsers:
     ips: []
     permissions:
       - action: publish
-        path: ''
+        path: ""
   - user: any
     pass: ""
     ips: []
     permissions:
       - action: read
-        path: ''
+        path: ""
+
+# Recording is a per-path setting, not a global setting.
+pathDefaults:
+  record: true
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordMaxPartSize: 50M
+  recordDeleteAfter: 72h
+
+paths:
+  all_others:
