@@ -1,0 +1,19 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1
+    container_name: pyonglive-mediamtx
+    restart: unless-stopped
+    ports:
+      - "1935:1935"
+      - "8888:8888"
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+      - pyonglive-recordings:/recordings
+    healthcheck:
+      test: ["CMD", "/mediamtx", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pyonglive-recordings:
