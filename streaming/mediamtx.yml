@@ -16,7 +16,7 @@ hlsAllowOrigins: ['*']
 hlsVariant: fmp4
 
 # Record every published path to the persistent Docker volume.
-record: yes
+record: true
 recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
 recordFormat: fmp4
 recordPartDuration: 1s
