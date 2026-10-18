@@ -144,12 +144,25 @@ jobs:
                     { headers: { authorization: `Bearer ${process.env.CF_STREAM_EDIT_TOKEN}` } }
                   );
                   const statusPayload = await statusResponse.json().catch(() => ({}));
+                  const videosResponse = await fetch(
+                    `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}/stream/live_inputs/${streamUid}/videos`,
+                    { headers: { authorization: `Bearer ${process.env.CF_STREAM_EDIT_TOKEN}` } }
+                  );
+                  const videosPayload = await videosResponse.json().catch(() => ({}));
                   const currentStatus = {
                     httpStatus: statusResponse.status,
                     success: statusPayload.success,
                     status: statusPayload.result?.status ?? null,
                     enabled: statusPayload.result?.enabled ?? null,
-                    errors: (statusPayload.errors ?? []).map(item => ({ code: item.code, message: item.message }))
+                    errors: (statusPayload.errors ?? []).map(item => ({ code: item.code, message: item.message })),
+                    videosHttpStatus: videosResponse.status,
+                    videosSuccess: videosPayload.success,
+                    videos: (Array.isArray(videosPayload.result) ? videosPayload.result : []).map(video => ({
+                      uid: video.uid,
+                      status: video.status?.state ?? null,
+                      readyToStream: video.readyToStream ?? null,
+                      created: video.created ?? null
+                    }))
                   };
                   const signature = JSON.stringify(currentStatus);
                   if (signature !== lastInputStatus) {
