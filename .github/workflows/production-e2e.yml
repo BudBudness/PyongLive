@@ -96,16 +96,16 @@ jobs:
 
             const publishUrl = started.ingest.url.replace(/\/$/, "") + "/" + started.ingest.streamKey;
             ffmpeg = spawn("ffmpeg", [
-              "-hide_banner", "-loglevel", "warning", "-re",
-              "-f", "lavfi", "-i", "color=c=black:s=320x240:r=15",
+              "-hide_banner", "-loglevel", "info", "-re",
+              "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30",
               "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100",
               "-t", "180", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-              "-pix_fmt", "yuv420p", "-b:v", "2000k", "-maxrate", "2000k", "-bufsize", "4000k", "-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-c:a", "aac", "-b:a", "128k",
+              "-pix_fmt", "yuv420p", "-b:v", "4000k", "-minrate", "4000k", "-maxrate", "4000k", "-bufsize", "8000k", "-x264-params", "nal-hrd=cbr:force-cfr=1", "-g", "120", "-keyint_min", "120", "-sc_threshold", "0", "-c:a", "aac", "-b:a", "128k",
               "-f", "flv", publishUrl
             ], { stdio: ["ignore", "ignore", "pipe"] });
             ffmpeg.stderr.setEncoding("utf8");
             ffmpeg.stderr.on("data", chunk => {
-              ffmpegStderr = (ffmpegStderr + chunk).slice(-12000);
+              ffmpegStderr = (ffmpegStderr + chunk.replaceAll(started.ingest.streamKey, "[REDACTED_STREAM_KEY]")).slice(-12000);
             });
 
             await waitFor("live viewer HLS manifest reachable while publishing", async () => {
