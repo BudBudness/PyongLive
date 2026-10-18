@@ -94,7 +94,7 @@ jobs:
               "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24",
               "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100",
               "-t", "180", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-              "-pix_fmt", "yuv420p", "-g", "48", "-c:a", "aac", "-b:a", "96k",
+              "-pix_fmt", "yuv420p", "-b:v", "2500k", "-minrate", "2500k", "-maxrate", "2500k", "-bufsize", "5000k", "-g", "96", "-keyint_min", "96", "-sc_threshold", "0", "-c:a", "aac", "-b:a", "128k",
               "-f", "flv", publishUrl
             ], { stdio: ["ignore", "ignore", "pipe"] });
             ffmpeg.stderr.setEncoding("utf8");
