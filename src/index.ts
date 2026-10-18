@@ -5,6 +5,11 @@ interface Env {
   CF_STREAM_API_TOKEN: string;
   ADMIN_API_TOKEN: string;
   STREAM_CUSTOMER_CODE: string;
+  MEDIA_PROVIDER?: string;
+  MEDIAMTX_RTMP_BASE_URL?: string;
+  MEDIAMTX_HLS_BASE_URL?: string;
+  MEDIAMTX_PUBLISH_USERNAME?: string;
+  MEDIAMTX_PUBLISH_PASSWORD?: string;
 }
 
 type EventStatus = "scheduled" | "live" | "ended";
@@ -63,6 +68,27 @@ async function readEvent(env: Env, id: string): Promise<EventRecord | null> {
   return env.DB.prepare("SELECT * FROM events WHERE id = ?").bind(id).first<EventRecord>();
 }
 
+function createMediaMTXInput(env: Env, eventId: string) {
+  const rtmpBase = env.MEDIAMTX_RTMP_BASE_URL?.trim().replace(/\/$/, "");
+  const hlsBase = env.MEDIAMTX_HLS_BASE_URL?.trim().replace(/\/$/, "");
+  const username = env.MEDIAMTX_PUBLISH_USERNAME?.trim();
+  const password = env.MEDIAMTX_PUBLISH_PASSWORD;
+  if (!rtmpBase || !hlsBase || !username || !password) {
+    throw new Error("MediaMTX provider is selected but its RTMP/HLS URLs or publish credentials are missing");
+  }
+  // Unique unguessable path per event; the shared publish credential is only returned
+  // by this admin-protected endpoint and must never be sent to viewers.
+  const path = "event-" + eventId.replace(/-/g, "") + "-" + crypto.randomUUID().replace(/-/g, "");
+  const encodedUser = encodeURIComponent(username);
+  const encodedPassword = encodeURIComponent(password);
+  return {
+    uid: "mediamtx:" + path,
+    ingestUrl: rtmpBase + "/" + path,
+    streamKey: encodedUser + ":" + encodedPassword,
+    playbackUrl: hlsBase + "/" + path + "/index.m3u8"
+  };
+}
+
 async function createLiveInput(env: Env, title: string) {
   const endpoint = "https://api.cloudflare.com/client/v4/accounts/" +
     encodeURIComponent(env.CF_ACCOUNT_ID) + "/stream/live_inputs";
@@ -99,6 +125,11 @@ async function createLiveInput(env: Env, title: string) {
 }
 
 async function resolveReplay(env: Env, event: EventRecord) {
+  if (event.stream_uid?.startsWith("mediamtx:")) {
+    // MediaMTX records to local storage; replay requires a public recording index
+    // service before the Worker can return a stable replay URL.
+    return { ready: false as const, reason: "recording_index_not_configured" as const };
+  }
   if (!event.stream_uid || !env.CF_ACCOUNT_ID || !env.CF_STREAM_API_TOKEN) {
     return { ready: false as const, reason: "not_configured" };
   }
@@ -302,18 +333,25 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     if (action === "start") {
       if (event.status === "ended") return json({ error: "Ended events cannot be restarted" }, 409);
       if (event.status === "live" && event.stream_uid) return json({ error: "Event is already live" }, 409);
-      if (!env.CF_ACCOUNT_ID || !env.CF_STREAM_API_TOKEN) return json({ error: "Cloudflare Stream credentials are not configured" }, 503);
+      const provider = (env.MEDIA_PROVIDER ?? "cloudflare").trim().toLowerCase();
+      if (provider !== "cloudflare" && provider !== "mediamtx") return json({ error: "MEDIA_PROVIDER must be cloudflare or mediamtx" }, 500);
+      if (provider === "cloudflare" && (!env.CF_ACCOUNT_ID || !env.CF_STREAM_API_TOKEN)) return json({ error: "Cloudflare Stream credentials are not configured" }, 503);
+      if (provider === "mediamtx" && (!env.MEDIAMTX_RTMP_BASE_URL || !env.MEDIAMTX_HLS_BASE_URL || !env.MEDIAMTX_PUBLISH_USERNAME || !env.MEDIAMTX_PUBLISH_PASSWORD)) return json({ error: "MediaMTX is selected but required MediaMTX environment variables are not configured" }, 503);
 
-      let liveInput: Awaited<ReturnType<typeof createLiveInput>>;
+      let liveInput: Awaited<ReturnType<typeof createLiveInput>> | ReturnType<typeof createMediaMTXInput>;
       try {
-        liveInput = await createLiveInput(env, event.title);
+        liveInput = provider === "mediamtx"
+          ? createMediaMTXInput(env, id)
+          : await createLiveInput(env, event.title);
       } catch {
-        return json({ error: "Unable to create the live input. Check Cloudflare Stream configuration and permissions." }, 502);
+        return json({ error: provider === "mediamtx" ? "Unable to prepare MediaMTX ingest. Verify the MediaMTX URLs and credentials." : "Unable to create the live input. Check Cloudflare Stream configuration and permissions." }, 502);
       }
 
-      const playbackUrl = env.STREAM_CUSTOMER_CODE
-        ? "https://customer-" + env.STREAM_CUSTOMER_CODE + ".cloudflarestream.com/" + liveInput.uid + "/manifest/video.m3u8"
-        : null;
+      const playbackUrl = "playbackUrl" in liveInput
+        ? liveInput.playbackUrl
+        : env.STREAM_CUSTOMER_CODE
+          ? "https://customer-" + env.STREAM_CUSTOMER_CODE + ".cloudflarestream.com/" + liveInput.uid + "/manifest/video.m3u8"
+          : null;
       await env.DB.prepare(
         "UPDATE events SET status = 'live', started_at = ?, stream_uid = ?, playback_url = ? WHERE id = ?"
       ).bind(new Date().toISOString(), liveInput.uid, playbackUrl, id).run();
@@ -321,6 +359,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       return json({
         eventId: id,
         status: "live",
+        provider,
         ingest: { url: liveInput.ingestUrl, streamKey: liveInput.streamKey },
         playbackUrl,
         note: "Keep the stream key private."
