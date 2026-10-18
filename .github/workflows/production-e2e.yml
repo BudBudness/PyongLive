@@ -64,6 +64,7 @@ jobs:
 
           let eventId;
           let ffmpeg;
+          let ffmpegStderr = "";
           let primaryError;
           try {
             const healthResponse = await fetch(base + "/health");
@@ -95,10 +96,17 @@ jobs:
               "-t", "180", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
               "-pix_fmt", "yuv420p", "-g", "48", "-c:a", "aac", "-b:a", "96k",
               "-f", "flv", publishUrl
-            ], { stdio: ["ignore", "ignore", "ignore"] });
+            ], { stdio: ["ignore", "ignore", "pipe"] });
+            ffmpeg.stderr.setEncoding("utf8");
+            ffmpeg.stderr.on("data", chunk => {
+              ffmpegStderr = (ffmpegStderr + chunk).slice(-12000);
+            });
 
             await waitFor("live viewer HLS manifest reachable while publishing", async () => {
-              if (ffmpeg.exitCode !== null) throw new Error(`FFmpeg exited early (${ffmpeg.exitCode})`);
+              if (ffmpeg.exitCode !== null) {
+                const detail = ffmpegStderr.trim();
+                throw new Error(`FFmpeg exited early (${ffmpeg.exitCode})${detail ? `; stderr: ${detail}` : "; no FFmpeg stderr captured"}`);
+              }
               const response = await fetch(started.playbackUrl);
               if (!response.ok) return false;
               const body = await response.text();
@@ -109,7 +117,11 @@ jobs:
             await new Promise((resolve, reject) => {
               const timeout = setTimeout(() => reject(new Error("FFmpeg publish exceeded expected duration")), 195000);
               ffmpeg.once("error", error => { clearTimeout(timeout); reject(error); });
-              ffmpeg.once("exit", code => { clearTimeout(timeout); code === 0 ? resolve() : reject(new Error(`FFmpeg exited with code ${code}`)); });
+              ffmpeg.once("exit", code => {
+                clearTimeout(timeout);
+                if (code === 0) resolve();
+                else reject(new Error(`FFmpeg exited with code ${code}${ffmpegStderr.trim() ? `; stderr: ${ffmpegStderr.trim()}` : ""}`));
+              });
             });
             ffmpeg = null;
 
