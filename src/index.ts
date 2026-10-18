@@ -10,6 +10,8 @@ interface Env {
   MEDIAMTX_HLS_BASE_URL?: string;
   MEDIAMTX_PUBLISH_USERNAME?: string;
   MEDIAMTX_PUBLISH_PASSWORD?: string;
+  MEDIAMTX_RECORDING_INDEX_URL?: string;
+  MEDIAMTX_RECORDING_INDEX_TOKEN?: string;
 }
 
 type EventStatus = "scheduled" | "live" | "ended";
@@ -126,9 +128,30 @@ async function createLiveInput(env: Env, title: string) {
 
 async function resolveReplay(env: Env, event: EventRecord) {
   if (event.stream_uid?.startsWith("mediamtx:")) {
-    // MediaMTX records to local storage; replay requires a public recording index
-    // service before the Worker can return a stable replay URL.
-    return { ready: false as const, reason: "recording_index_not_configured" as const };
+    const indexUrl = env.MEDIAMTX_RECORDING_INDEX_URL?.trim().replace(/\/$/, "");
+    const indexToken = env.MEDIAMTX_RECORDING_INDEX_TOKEN?.trim();
+    if (!indexUrl || !indexToken) {
+      return { ready: false as const, reason: "recording_index_not_configured" as const };
+    }
+    const path = event.stream_uid.slice("mediamtx:".length);
+    const endpoint = new URL(indexUrl + "/api/recordings");
+    endpoint.searchParams.set("path", path);
+    const response = await fetch(endpoint, {
+      headers: { authorization: "Bearer " + indexToken }
+    });
+    const payload = await response.json() as {
+      ready?: boolean;
+      file?: string;
+      playbackUrl?: string;
+    };
+    if (response.status === 404 || !payload.ready || !payload.file || !payload.playbackUrl) {
+      return { ready: false as const, reason: "processing" as const };
+    }
+    if (!response.ok) throw new Error("Could not query MediaMTX recording index");
+    await env.DB.prepare(
+      "UPDATE events SET replay_uid = ?, playback_url = ? WHERE id = ?"
+    ).bind("mediamtx:" + path + "/" + payload.file, payload.playbackUrl, event.id).run();
+    return { ready: true as const, replayUid: "mediamtx:" + path + "/" + payload.file, playbackUrl: payload.playbackUrl };
   }
   if (!event.stream_uid || !env.CF_ACCOUNT_ID || !env.CF_STREAM_API_TOKEN) {
     return { ready: false as const, reason: "not_configured" };
@@ -305,7 +328,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }
     try {
       const replay = await resolveReplay(env, event);
-      if (!replay.ready) return json({ status: "processing", message: replay.reason === "recording_index_not_configured" ? "MediaMTX is recording locally, but a recording index/public replay URL is not configured yet." : "Recording is not ready yet" }, 202);
+      if (!replay.ready) return json({ status: "processing", message: replay.reason === "recording_index_not_configured" ? "MediaMTX is recording locally, but recording index settings are not configured." : "Recording is not ready yet" }, 202);
       return json({
         status: "ready",
         replayUid: replay.replayUid,
