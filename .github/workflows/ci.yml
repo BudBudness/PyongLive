@@ -16,6 +16,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate recording index JavaScript
         run: node --check streaming/recording-index.mjs
+      - name: Test recording index authentication and playback
+        run: node streaming/test-recording-index.mjs
       - name: Validate MediaMTX configuration
         run: docker run --rm -v "$PWD/streaming/mediamtx.yml:/mediamtx.yml:ro" bluenviron/mediamtx:1 --validate-conf=/mediamtx.yml
       - uses: actions/setup-node@v4
