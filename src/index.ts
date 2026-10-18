@@ -85,7 +85,7 @@ function createMediaMTXInput(env: Env, eventId: string) {
     uid: "mediamtx:" + path,
     ingestUrl: rtmpBase.replace("://", "://" + encodedUser + ":" + encodedPassword + "@") + "/" + path,
     streamKey: "",
-    playbackUrl: hlsBase + "/" + path + "/index.m3u8"
+    playbackUrl: hlsBase + "/" + path
   };
 }
 
