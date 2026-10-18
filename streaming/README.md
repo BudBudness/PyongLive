@@ -47,12 +47,16 @@ The Worker now supports an explicit provider switch. It defaults to `cloudflare`
 - `MEDIAMTX_HLS_BASE_URL=https://YOUR_HTTPS_HLS_HOST`
 - `MEDIAMTX_PUBLISH_USERNAME=publisher`
 - `MEDIAMTX_PUBLISH_PASSWORD` — must exactly match the password in `mediamtx.yml`
+- `MEDIAMTX_RECORDING_INDEX_URL` — public HTTPS origin routed to the recording-index service (for example, `https://media.example.com`)
+- `MEDIAMTX_RECORDING_INDEX_TOKEN` — long random secret, also supplied to the recording-index container as `MEDIAMTX_RECORDING_INDEX_TOKEN`
 
 Use the RTMP URL returned by the admin-protected `/start` endpoint as a complete publishing URL; it embeds the publishing username/password. Do not publish that URL or include it in logs. The HLS base URL must be reachable by viewers and should use HTTPS in production.
 
 The provider adapter assigns an unguessable path per event and persists the MediaMTX path in the existing `stream_uid` column. No database migration is needed. Cloudflare remains the default until `MEDIA_PROVIDER` is explicitly changed.
 
-**Known gap:** local MediaMTX recordings are enabled, but the Worker does not yet index recording files or return stable replay URLs. The replay endpoint intentionally reports that the recording index is not configured. Do not switch production until replay indexing and end-to-end tests are completed. The admin must stop the encoder before ending an event; the Worker currently changes event status but does not remotely terminate an active MediaMTX publisher.
+The `recording-index.mjs` companion service scans recordings for the event path and serves the selected file without exposing directory listings. Set `MEDIAMTX_RECORDING_INDEX_TOKEN` and `PUBLIC_RECORDINGS_BASE_URL` in the shell before starting Compose; the latter must be the public HTTPS origin routed by a reverse proxy to port 8090. Configure the same token in the Worker as `MEDIAMTX_RECORDING_INDEX_TOKEN`, and set `MEDIAMTX_RECORDING_INDEX_URL` to that public origin. The reverse proxy must route `/api/recordings` and `/recordings/*` to the recording-index service. Keep port 8090 private; Compose binds it to loopback only.
+
+**Known gap:** the recording index has syntax validation but has not yet been tested against an actual MediaMTX recording or public reverse proxy. Do not switch production until a real broadcast, recording discovery, replay playback, and end-to-end tests pass. The admin must stop the encoder before ending an event; the Worker currently changes event status but does not remotely terminate an active MediaMTX publisher.
 
 ## Public access and security
 
