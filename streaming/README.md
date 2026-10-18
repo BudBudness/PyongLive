@@ -38,6 +38,22 @@ Requirements: Docker Engine with the Compose plugin and FFmpeg.
 
 5. Stop FFmpeg with Ctrl+C. Recordings are written inside the persistent `pyonglive-recordings` Docker volume. Inspect the server logs and verify the recording before moving on.
 
+## Worker provider configuration
+
+The Worker now supports an explicit provider switch. It defaults to `cloudflare` to avoid changing production behavior unexpectedly. To test MediaMTX after deploying a reachable server, configure these Worker environment variables in the Cloudflare dashboard:
+
+- `MEDIA_PROVIDER=mediamtx`
+- `MEDIAMTX_RTMP_BASE_URL=rtmp://YOUR_REACHABLE_HOST:1935`
+- `MEDIAMTX_HLS_BASE_URL=https://YOUR_HTTPS_HLS_HOST`
+- `MEDIAMTX_PUBLISH_USERNAME=publisher`
+- `MEDIAMTX_PUBLISH_PASSWORD` — must exactly match the password in `mediamtx.yml`
+
+Use the RTMP URL returned by the admin-protected `/start` endpoint as a complete publishing URL; it embeds the publishing username/password. Do not publish that URL or include it in logs. The HLS base URL must be reachable by viewers and should use HTTPS in production.
+
+The provider adapter assigns an unguessable path per event and persists the MediaMTX path in the existing `stream_uid` column. No database migration is needed. Cloudflare remains the default until `MEDIA_PROVIDER` is explicitly changed.
+
+**Known gap:** local MediaMTX recordings are enabled, but the Worker does not yet index recording files or return stable replay URLs. The replay endpoint intentionally reports that the recording index is not configured. Do not switch production until replay indexing and end-to-end tests are completed. The admin must stop the encoder before ending an event; the Worker currently changes event status but does not remotely terminate an active MediaMTX publisher.
+
 ## Public access and security
 
 Do not expose port 8888 directly to the internet without HTTPS and appropriate access controls. For public playback, place HLS behind a TLS-enabled reverse proxy and set the playback base URL to that HTTPS hostname. Restrict RTMP publishing to trusted broadcasters; use a unique path per event and protect publishing credentials. Do not put secrets in GitHub source, client-side code, or public event metadata.
