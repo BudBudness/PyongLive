@@ -98,7 +98,7 @@ jobs:
             ffmpeg = spawn("ffmpeg", [
               "-hide_banner", "-loglevel", "info", "-re",
               "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30",
-              "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100",
+              "-re", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100",
               "-t", "180", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
               "-pix_fmt", "yuv420p", "-b:v", "4000k", "-minrate", "4000k", "-maxrate", "4000k", "-bufsize", "8000k", "-x264-params", "nal-hrd=cbr:force-cfr=1", "-g", "120", "-keyint_min", "120", "-sc_threshold", "0", "-c:a", "aac", "-b:a", "128k",
               "-f", "flv", publishUrl
