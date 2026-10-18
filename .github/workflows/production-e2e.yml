@@ -92,6 +92,30 @@ jobs:
             if (!started.playbackUrl) throw new Error("Worker STREAM_CUSTOMER_CODE is missing; cannot verify viewer playback");
             playbackUrl = started.playbackUrl;
             streamUid = playbackUrl.match(/cloudflarestream\.com\/([^/]+)\/manifest\/video\.m3u8/)?.[1];
+            if (streamUid && process.env.CF_ACCOUNT_ID && process.env.CF_STREAM_EDIT_TOKEN) {
+              const verifyResponse = await fetch(
+                `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT_ID}/stream/live_inputs/${streamUid}`,
+                { headers: { authorization: `Bearer ${process.env.CF_STREAM_EDIT_TOKEN}` } }
+              );
+              const verifyPayload = await verifyResponse.json().catch(() => ({}));
+              const input = verifyPayload.result;
+              const urlMatches = input?.rtmps?.url === started.ingest.url;
+              const keyMatches = input?.rtmps?.streamKey === started.ingest.streamKey;
+              console.log("Cloudflare credential preflight:", JSON.stringify({
+                httpStatus: verifyResponse.status,
+                success: verifyPayload.success,
+                enabled: input?.enabled,
+                ingestUrlMatches: urlMatches,
+                streamKeyMatches: keyMatches,
+                workerKeyLength: started.ingest.streamKey.length,
+                cloudflareKeyLength: input?.rtmps?.streamKey?.length ?? null
+              }));
+              if (!verifyResponse.ok || !verifyPayload.success || !urlMatches || !keyMatches || input?.enabled === false) {
+                throw new Error("Worker-provided RTMPS credentials do not match the enabled Cloudflare live input.");
+              }
+            } else {
+              console.log("Credential preflight skipped: Cloudflare API credentials unavailable.");
+            }
             console.log("PASS: production Worker created a Stream live input and returned private ingest credentials.");
 
             const publishUrl = started.ingest.url.replace(/\/$/, "") + "/" + started.ingest.streamKey;
