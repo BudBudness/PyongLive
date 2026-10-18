@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate MediaMTX configuration
+        run: docker run --rm -v "$PWD/streaming/mediamtx.yml:/mediamtx.yml:ro" bluenviron/mediamtx:1 --validate-conf=/mediamtx.yml
       - uses: actions/setup-node@v4
         with:
           node-version: 22
