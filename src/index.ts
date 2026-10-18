@@ -83,8 +83,8 @@ function createMediaMTXInput(env: Env, eventId: string) {
   const encodedPassword = encodeURIComponent(password);
   return {
     uid: "mediamtx:" + path,
-    ingestUrl: rtmpBase + "/" + path,
-    streamKey: encodedUser + ":" + encodedPassword,
+    ingestUrl: rtmpBase.replace("://", "://" + encodedUser + ":" + encodedPassword + "@") + "/" + path,
+    streamKey: "",
     playbackUrl: hlsBase + "/" + path + "/index.m3u8"
   };
 }
@@ -305,7 +305,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }
     try {
       const replay = await resolveReplay(env, event);
-      if (!replay.ready) return json({ status: "processing", message: "Recording is not ready yet" }, 202);
+      if (!replay.ready) return json({ status: "processing", message: replay.reason === "recording_index_not_configured" ? "MediaMTX is recording locally, but a recording index/public replay URL is not configured yet." : "Recording is not ready yet" }, 202);
       return json({
         status: "ready",
         replayUid: replay.replayUid,
