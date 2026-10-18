@@ -1,0 +1,40 @@
+# PyongLive MediaMTX starter configuration.
+# Before exposing this server publicly, replace the example publish password below
+# and terminate HTTPS for HLS with a trusted reverse proxy.
+logLevel: info
+
+# Keep the exposed surface small for the first zero-cost local test.
+rtsp: false
+webrtc: false
+srt: false
+rtmp: true
+rtmpAddress: :1935
+
+hls: true
+hlsAddress: :8888
+hlsAllowOrigins: ['*']
+hlsVariant: fmp4
+
+# Record every published path to the persistent Docker volume.
+record: yes
+recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+recordFormat: fmp4
+recordPartDuration: 1s
+recordMaxPartSize: 50M
+recordDeleteAfter: 72h
+
+# Anonymous viewers may read HLS. Publishing requires credentials.
+authMethod: internal
+authInternalUsers:
+  - user: publisher
+    pass: REPLACE_WITH_A_LONG_RANDOM_PASSWORD
+    ips: []
+    permissions:
+      - action: publish
+        path: ''
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+        path: ''
