@@ -144,10 +144,11 @@ async function resolveReplay(env: Env, event: EventRecord) {
       file?: string;
       playbackUrl?: string;
     };
-    if (response.status === 404 || !payload.ready || !payload.file || !payload.playbackUrl) {
+    if (response.status === 404) return { ready: false as const, reason: "processing" as const };
+    if (!response.ok) throw new Error("Could not query MediaMTX recording index");
+    if (!payload.ready || !payload.file || !payload.playbackUrl) {
       return { ready: false as const, reason: "processing" as const };
     }
-    if (!response.ok) throw new Error("Could not query MediaMTX recording index");
     await env.DB.prepare(
       "UPDATE events SET replay_uid = ?, playback_url = ? WHERE id = ?"
     ).bind("mediamtx:" + path + "/" + payload.file, payload.playbackUrl, event.id).run();
