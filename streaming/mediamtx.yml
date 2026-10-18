@@ -33,7 +33,7 @@ authInternalUsers:
       - action: publish
         path: ''
   - user: any
-    pass:
+    pass: ""
     ips: []
     permissions:
       - action: read
