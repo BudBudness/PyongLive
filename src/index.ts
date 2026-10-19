@@ -265,7 +265,8 @@ function watchEvent(event){
   el("player-video").load();
   if(activeHls){activeHls.destroy();activeHls=null}
   const isHls=event.playerUrl.includes(".m3u8");
-  if(isHls || /\\.(mp4|mkv|ts)(\\?|$)/i.test(event.playerUrl)){
+  let playbackMessage=event.status==="live"?"Live broadcast":"Replay";
+  if(isHls || [".mp4",".mkv",".ts"].some(ext=>event.playerUrl.toLowerCase().endsWith(ext))){
     el("player-frame").classList.add("hidden");
     el("player-video").classList.remove("hidden");
     if(isHls && window.Hls && Hls.isSupported()){
@@ -273,14 +274,14 @@ function watchEvent(event){
     }else if(!isHls || el("player-video").canPlayType("application/vnd.apple.mpegurl")){
       el("player-video").src=event.playerUrl;
     }else{
-      el("player-note").textContent="This browser cannot play HLS. Try a browser with native HLS support.";
+      playbackMessage="This browser cannot play HLS. Try a browser with native HLS support.";
     }
   }else{
     el("player-video").classList.add("hidden");
     el("player-frame").classList.remove("hidden");
     el("player-frame").src=event.playerUrl;
   }
-  el("player-note").textContent=event.status==="live"?"Live broadcast":"Replay";
+  el("player-note").textContent=playbackMessage;
   el("player").classList.remove("hidden");el("player").scrollIntoView({behavior:"smooth"})
 }
 async function checkReplay(id,title){try{const data=await api("/api/events/"+id+"/replay");if(data.status==="ready"){watchEvent({title,playerUrl:data.playerUrl,status:"ended"})}else{el("admin-message").textContent="Replay is still processing. Try again shortly."}}catch(error){el("admin-message").textContent=error.message}}
