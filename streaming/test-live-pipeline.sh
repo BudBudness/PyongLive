@@ -49,7 +49,7 @@ ffmpeg_pid=$!
 
 hls_ready=0
 for _ in $(seq 1 40); do
-  if curl -fsSL --max-time 1 -c "$tmp/cookies.txt" -b "$tmp/cookies.txt" "http://127.0.0.1:8888/$path/index.m3u8" -o "$tmp/index.m3u8" 2>/dev/null && grep -q '#EXTM3U' "$tmp/index.m3u8"; then
+  if curl -fsSL --max-time 1 -b "cookieCheck=1" "http://127.0.0.1:8888/$path/index.m3u8" -o "$tmp/index.m3u8" 2>/dev/null && grep -q '#EXTM3U' "$tmp/index.m3u8"; then
     hls_ready=1
     break
   fi
