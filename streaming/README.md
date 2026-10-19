@@ -62,11 +62,14 @@ The `recording-index.mjs` companion service scans recordings for the event path 
 
 Do not expose port 8888 directly to the internet without HTTPS and appropriate access controls. For public playback, place HLS behind a TLS-enabled reverse proxy and set the playback base URL to that HTTPS hostname. Restrict RTMP publishing to trusted broadcasters; use a unique path per event and protect publishing credentials. Do not put secrets in GitHub source, client-side code, or public event metadata.
 
-## Next migration work
+## Remaining migration blockers
 
-- Add a Worker media-provider interface with explicit `cloudflare` and `mediamtx` modes.
-- Issue a per-event publishing credential/path without exposing shared server credentials to viewers.
-- Store the media provider and media path in D1.
-- Implement a secure recording index/replay URL flow for the persistent recording volume.
-- Add production end-to-end tests against a reachable MediaMTX host.
-- Only switch production after these tests pass and a zero-subscription host is actually available.
+The Worker provider adapter, per-event publishing path, D1 path persistence, and secure recording-index/replay lookup are implemented. The following production work is still unverified:
+
+- Provision a reachable, always-on MediaMTX host with persistent storage. A computer already owned by the operator can be used for a local trial, but it is not a public always-on host unless it remains online and is reachable.
+- Put HLS playback and the recording-index service behind HTTPS; keep the recording-index port private and configure the shared bearer token securely.
+- Run a real broadcast from an encoder, confirm HLS playback from a separate network/device, stop the broadcast, confirm a recording appears, and play the replay including HTTP byte-range seeking.
+- Verify event start/end behavior and operational recovery after MediaMTX restarts.
+- Only then set `MEDIA_PROVIDER=mediamtx` in production. Until all checks pass, keep the production provider on Cloudflare Stream.
+
+No zero-cost public hosting or bandwidth source has been provisioned by this repository. MediaMTX is free software; a genuinely zero-cash-cost public deployment depends on access to an already-owned, always-on machine and internet connection.
