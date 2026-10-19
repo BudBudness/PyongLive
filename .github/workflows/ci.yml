@@ -20,6 +20,11 @@ jobs:
         run: node streaming/test-recording-index.mjs
       - name: Validate MediaMTX configuration
         run: docker run --rm -v "$PWD/streaming/mediamtx.yml:/mediamtx.yml:ro" bluenviron/mediamtx:1 --validate-conf=/mediamtx.yml
+      - name: Test real MediaMTX RTMP-to-HLS recording pipeline
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          bash streaming/test-live-pipeline.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22
