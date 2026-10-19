@@ -57,6 +57,17 @@ try {
   assert.equal(partial.headers.get("content-range"), "bytes 0-3/16");
   assert.equal(await partial.text(), "fake");
 
+  const suffix = await fetch(result.playbackUrl, { headers: { range: "bytes=-4" } });
+  assert.equal(suffix.status, 206, "suffix byte ranges should be supported");
+  assert.equal(suffix.headers.get("content-range"), "bytes 12-15/16");
+  assert.equal(await suffix.text(), "tent");
+
+  const zeroSuffix = await fetch(result.playbackUrl, { headers: { range: "bytes=-0" } });
+  assert.equal(zeroSuffix.status, 416, "zero-length suffix ranges should be rejected");
+
+  const malformedRange = await fetch(result.playbackUrl, { headers: { range: "bytes=0-1,4-5" } });
+  assert.equal(malformedRange.status, 416, "unsupported multi-range requests should be rejected");
+
   const invalidRange = await fetch(result.playbackUrl, { headers: { range: "bytes=999-1000" } });
   assert.equal(invalidRange.status, 416, "out-of-bounds byte ranges should be rejected");
 
