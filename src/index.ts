@@ -87,7 +87,7 @@ function createMediaMTXInput(env: Env, eventId: string) {
   const encodedPassword = encodeURIComponent(password);
   return {
     uid: "mediamtx:" + path,
-    ingestUrl: rtmpBase.replace("://", "://" + encodedUser + ":" + encodedPassword + "@") + "/" + path,
+    ingestUrl: rtmpBase + "/" + path + "?user=" + encodedUser + "&pass=" + encodedPassword,
     streamKey: "",
     playbackUrl: hlsBase + "/" + path + "/index.m3u8"
   };
