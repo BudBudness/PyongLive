@@ -49,7 +49,7 @@ ffmpeg_pid=$!
 
 hls_ready=0
 for _ in $(seq 1 40); do
-  if curl -fsS --max-time 1 "http://127.0.0.1:8888/$path/index.m3u8" -o "$tmp/index.m3u8" 2>/dev/null && grep -q '#EXTM3U' "$tmp/index.m3u8"; then
+  if curl -fsSL --max-time 1 -c "$tmp/cookies.txt" -b "$tmp/cookies.txt" "http://127.0.0.1:8888/$path/index.m3u8" -o "$tmp/index.m3u8" 2>/dev/null && grep -q '#EXTM3U' "$tmp/index.m3u8"; then
     hls_ready=1
     break
   fi
@@ -58,7 +58,7 @@ done
 if [[ "$hls_ready" != 1 ]]; then
   cat "$tmp/ffmpeg.log" || true
   echo "Last HLS response:"
-  curl -sS --max-time 2 -D "$tmp/hls-headers.txt" "http://127.0.0.1:8888/$path/index.m3u8" -o "$tmp/hls-body.txt" || true
+  curl -sSL --max-time 2 -c "$tmp/cookies.txt" -b "$tmp/cookies.txt" -D "$tmp/hls-headers.txt" "http://127.0.0.1:8888/$path/index.m3u8" -o "$tmp/hls-body.txt" || true
   cat "$tmp/hls-headers.txt" 2>/dev/null || true
   head -c 1000 "$tmp/hls-body.txt" 2>/dev/null || true
   echo
