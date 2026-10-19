@@ -36,7 +36,7 @@ for _ in $(seq 1 50); do
     echo "MediaMTX exited before becoming ready" >&2
     exit 1
   fi
-  if curl -fsS --max-time 1 "http://127.0.0.1:8888/" >/dev/null 2>&1; then ready=1; break; fi
+  if (echo > /dev/tcp/127.0.0.1/8888) >/dev/null 2>&1; then ready=1; break; fi
   sleep 0.2
 done
 if [[ "$ready" != 1 ]]; then cat "$tmp/mediamtx.log"; echo "MediaMTX did not become ready" >&2; exit 1; fi
