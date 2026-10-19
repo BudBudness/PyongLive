@@ -50,7 +50,9 @@ function publicEvent(event: EventRecord) {
     startedAt: event.started_at,
     endedAt: event.ended_at,
     playbackUrl: event.playback_url,
-    playerUrl: event.playback_url?.replace("/manifest/video.m3u8", "/iframe") ?? null
+    playerUrl: event.stream_uid?.startsWith("mediamtx:")
+      ? event.playback_url
+      : event.playback_url?.replace("/manifest/video.m3u8", "/iframe") ?? null
   };
 }
 
@@ -87,7 +89,7 @@ function createMediaMTXInput(env: Env, eventId: string) {
     uid: "mediamtx:" + path,
     ingestUrl: rtmpBase.replace("://", "://" + encodedUser + ":" + encodedPassword + "@") + "/" + path,
     streamKey: "",
-    playbackUrl: hlsBase + "/" + path
+    playbackUrl: hlsBase + "/" + path + "/index.m3u8"
   };
 }
 
@@ -219,7 +221,7 @@ p{color:var(--muted)}h2{font-size:22px;letter-spacing:-.03em}.grid{display:grid;
 button{border:0;border-radius:8px;padding:10px 14px;background:var(--accent);color:#111;font-weight:750;cursor:pointer;margin:5px 6px 0 0}
 button.secondary{background:#303030;color:white;border:1px solid #454545}button:disabled{opacity:.45;cursor:not-allowed}
 input,textarea{width:100%;background:#111;color:white;border:1px solid #444;border-radius:8px;padding:11px;margin:5px 0 12px;font:inherit}
-label{font-size:13px;color:#ccc}small,.muted{color:var(--muted)}.player{margin:24px 0}.player iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:8px;background:#050505}
+label{font-size:13px;color:#ccc}small,.muted{color:var(--muted)}.player{margin:24px 0}.player iframe,.player video{width:100%;aspect-ratio:16/9;border:0;border-radius:8px;background:#050505}
 .hidden{display:none!important}.ingest{white-space:pre-wrap;overflow-wrap:anywhere;background:#101010;padding:12px;border-radius:8px;font-size:13px}
 footer{border-top:1px solid var(--line);padding:22px;text-align:center;color:var(--muted);font-size:12px}
 </style>
@@ -228,7 +230,7 @@ footer{border-top:1px solid var(--line);padding:22px;text-align:center;color:var
 <header><div><div class="brand">PyongLive</div><div class="tag">The world, live.</div></div><span class="status">Early access</span></header>
 <main>
 <section class="hero"><div class="eyebrow">Live events · Replays</div><h1>Be there, wherever you are.</h1><p>Watch live broadcasts and catch up on recordings when they are ready.</p></section>
-<section id="player" class="player hidden"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><h2 id="player-title">Now playing</h2><button class="secondary" id="close-player">Close</button></div><iframe id="player-frame" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;" allowfullscreen></iframe><p id="player-note"></p></section>
+<section id="player" class="player hidden"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><h2 id="player-title">Now playing</h2><button class="secondary" id="close-player">Close</button></div><iframe id="player-frame" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;" allowfullscreen></iframe><video id="player-video" controls playsinline class="hidden"></video><p id="player-note"></p></section>
 <section><h2>Events</h2><div id="events" class="grid"><p>Loading events…</p></div></section>
 <section class="admin" style="margin-top:32px"><h2>Creator controls</h2><p>Create events and manage broadcasts. Admin access is required; keep your token private.</p>
 <label for="admin-token">Admin API token</label><input id="admin-token" type="password" autocomplete="off" placeholder="Enter token for this session">
@@ -236,6 +238,7 @@ footer{border-top:1px solid var(--line);padding:22px;text-align:center;color:var
 <div id="admin-message" role="status" class="muted"></div><div id="ingest-panel" class="hidden"><h3>Broadcast ingest details</h3><p>Enter these into your streaming software. Never share the stream key publicly.</p><div id="ingest-details" class="ingest"></div><button id="copy-ingest" class="secondary">Copy details</button></div>
 </section>
 </main><footer>PyongLive · A product of Pyong Recordz Ltd.</footer>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
 <script>
 const el=id=>document.getElementById(id);
 let lastIngest="";
@@ -252,9 +255,36 @@ card.append(actions);root.append(card)}
 async function createEvent(e){e.preventDefault();el("admin-message").textContent="";try{const body={title:el("title").value,description:el("description").value||null,scheduledAt:el("scheduled").value?new Date(el("scheduled").value).toISOString():null};await api("/api/events",{method:"POST",admin:true,body:JSON.stringify(body)});el("create-form").reset();el("admin-message").textContent="Event created.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
 async function startEvent(id){try{const data=await api("/api/events/"+id+"/start",{method:"POST",admin:true});lastIngest="RTMPS URL: "+(data.ingest.url||"not provided")+"\nStream key: "+(data.ingest.streamKey||"not provided")+"\nPlayback: "+(data.playbackUrl||"configure STREAM_CUSTOMER_CODE");el("ingest-details").textContent=lastIngest;el("ingest-panel").classList.remove("hidden");el("admin-message").textContent="Live input created. Start streaming using the ingest details.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
 async function endEvent(id){if(!confirm("End this event? Stop the encoder first, then confirm."))return;try{await api("/api/events/"+id+"/end",{method:"POST",admin:true});el("admin-message").textContent="Event ended. Recording may take a short time to become available.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
-function watchEvent(event){if(!event.playerUrl){el("player-note").textContent="Playback is not configured. Set STREAM_CUSTOMER_CODE in the Worker environment.";return}el("player-title").textContent=event.title;el("player-frame").src=event.playerUrl;el("player-note").textContent=event.status==="live"?"Live broadcast":"Replay";el("player").classList.remove("hidden");el("player").scrollIntoView({behavior:"smooth"})}
+let activeHls=null;
+function watchEvent(event){
+  if(!event.playerUrl){el("player-note").textContent="Playback is not configured. Configure the selected media provider.";return}
+  el("player-title").textContent=event.title;
+  el("player-frame").src="";
+  el("player-video").pause();
+  el("player-video").removeAttribute("src");
+  el("player-video").load();
+  if(activeHls){activeHls.destroy();activeHls=null}
+  const isHls=event.playerUrl.includes(".m3u8");
+  if(isHls || /\\.(mp4|mkv|ts)(\\?|$)/i.test(event.playerUrl)){
+    el("player-frame").classList.add("hidden");
+    el("player-video").classList.remove("hidden");
+    if(isHls && window.Hls && Hls.isSupported()){
+      activeHls=new Hls();activeHls.loadSource(event.playerUrl);activeHls.attachMedia(el("player-video"));
+    }else if(!isHls || el("player-video").canPlayType("application/vnd.apple.mpegurl")){
+      el("player-video").src=event.playerUrl;
+    }else{
+      el("player-note").textContent="This browser cannot play HLS. Try a browser with native HLS support.";
+    }
+  }else{
+    el("player-video").classList.add("hidden");
+    el("player-frame").classList.remove("hidden");
+    el("player-frame").src=event.playerUrl;
+  }
+  el("player-note").textContent=event.status==="live"?"Live broadcast":"Replay";
+  el("player").classList.remove("hidden");el("player").scrollIntoView({behavior:"smooth"})
+}
 async function checkReplay(id,title){try{const data=await api("/api/events/"+id+"/replay");if(data.status==="ready"){watchEvent({title,playerUrl:data.playerUrl,status:"ended"})}else{el("admin-message").textContent="Replay is still processing. Try again shortly."}}catch(error){el("admin-message").textContent=error.message}}
-el("create-form").addEventListener("submit",createEvent);el("close-player").onclick=()=>{el("player-frame").src="";el("player").classList.add("hidden")};el("copy-ingest").onclick=async()=>{try{await navigator.clipboard.writeText(lastIngest);el("admin-message").textContent="Ingest details copied."}catch{el("admin-message").textContent="Copy unavailable; select the ingest details manually."}};
+el("create-form").addEventListener("submit",createEvent);el("close-player").onclick=()=>{el("player-frame").src="";el("player-video").pause();el("player-video").removeAttribute("src");el("player-video").load();if(activeHls){activeHls.destroy();activeHls=null}el("player").classList.add("hidden")};el("copy-ingest").onclick=async()=>{try{await navigator.clipboard.writeText(lastIngest);el("admin-message").textContent="Ingest details copied."}catch{el("admin-message").textContent="Copy unavailable; select the ingest details manually."}};
 loadEvents();setInterval(loadEvents,15000);
 </script></body></html>`;
 
