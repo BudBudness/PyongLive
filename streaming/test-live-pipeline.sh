@@ -44,7 +44,7 @@ if [[ "$ready" != 1 ]]; then cat "$tmp/mediamtx.log"; echo "MediaMTX did not bec
 ffmpeg -hide_banner -loglevel error -re \
   -f lavfi -i "testsrc2=size=320x240:rate=10" -t 8 \
   -an -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 10 -f flv \
-  "rtmp://publisher:$password@127.0.0.1:1935/$path" >"$tmp/ffmpeg.log" 2>&1 &
+  "rtmp://127.0.0.1:1935/$path?user=publisher&pass=$password" >"$tmp/ffmpeg.log" 2>&1 &
 ffmpeg_pid=$!
 
 hls_ready=0
