@@ -46,7 +46,7 @@ try {
   assert.equal(indexed.status, 200);
   const result = await indexed.json();
   assert.equal(result.ready, true);
-  assert.match(result.playbackUrl, /\/recordings\/event-[a-f0-9]+\/2026-10-18\/sample\.mp4$/);
+  assert.match(result.playbackUrl, /\/recordings\/event-[a-f0-9]{32}-[a-f0-9]{32}\/2026-10-18\/sample\.mp4$/);
 
   const playback = await fetch(result.playbackUrl);
   assert.equal(playback.status, 200);
