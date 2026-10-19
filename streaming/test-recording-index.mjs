@@ -8,7 +8,7 @@ const temp = await mkdtemp(path.join(os.tmpdir(), "pyonglive-recording-index-"))
 const token = "test-index-token";
 const port = 18090;
 const base = "http://127.0.0.1:" + port;
-const eventPath = "event-" + "a".repeat(64);
+const eventPath = "event-" + "a".repeat(32) + "-" + "b".repeat(32);
 let child;
 
 try {
