@@ -83,7 +83,7 @@ const server = createServer(async (req, res) => {
       let end = info.size - 1;
       let status = 200;
       if (range) {
-        const match = /^bytes=(\\d*)-(\\d*)$/.exec(range);
+        const match = /^bytes=(\d*)-(\d*)$/.exec(range);
         if (!match || (!match[1] && !match[2])) {
           res.writeHead(416, { "content-range": "bytes */" + info.size, "cache-control": "no-store" });
           res.end();
