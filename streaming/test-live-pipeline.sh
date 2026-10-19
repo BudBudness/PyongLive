@@ -16,7 +16,7 @@ ffmpeg_pid=""
 cleanup() {
   if [[ -n "$ffmpeg_pid" ]]; then kill "$ffmpeg_pid" 2>/dev/null || true; wait "$ffmpeg_pid" 2>/dev/null || true; fi
   docker rm -f "$container" >/dev/null 2>&1 || true
-  rm -rf "$tmp"
+  sudo rm -rf "$tmp"
 }
 trap cleanup EXIT
 
@@ -48,7 +48,7 @@ ffmpeg -hide_banner -loglevel error -re \
 ffmpeg_pid=$!
 
 hls_ready=0
-for _ in $(seq 1 60); do
+for _ in $(seq 1 100); do
   if curl -fsS --max-time 2 "http://127.0.0.1:8888/$path/index.m3u8" -o "$tmp/index.m3u8" 2>/dev/null && grep -q '#EXTM3U' "$tmp/index.m3u8"; then
     hls_ready=1
     break
@@ -58,6 +58,11 @@ for _ in $(seq 1 60); do
 done
 if [[ "$hls_ready" != 1 ]]; then
   cat "$tmp/ffmpeg.log" || true
+  echo "Last HLS response:"
+  curl -sS --max-time 2 -D "$tmp/hls-headers.txt" "http://127.0.0.1:8888/$path/index.m3u8" -o "$tmp/hls-body.txt" || true
+  cat "$tmp/hls-headers.txt" 2>/dev/null || true
+  head -c 1000 "$tmp/hls-body.txt" 2>/dev/null || true
+  echo
   cat "$tmp/mediamtx.log"
   echo "Live HLS playlist was not available" >&2
   exit 1
