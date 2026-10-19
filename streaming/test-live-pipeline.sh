@@ -48,12 +48,11 @@ ffmpeg -hide_banner -loglevel error -re \
 ffmpeg_pid=$!
 
 hls_ready=0
-for _ in $(seq 1 100); do
-  if curl -fsS --max-time 2 "http://127.0.0.1:8888/$path/index.m3u8" -o "$tmp/index.m3u8" 2>/dev/null && grep -q '#EXTM3U' "$tmp/index.m3u8"; then
+for _ in $(seq 1 40); do
+  if curl -fsS --max-time 1 "http://127.0.0.1:8888/$path/index.m3u8" -o "$tmp/index.m3u8" 2>/dev/null && grep -q '#EXTM3U' "$tmp/index.m3u8"; then
     hls_ready=1
     break
   fi
-  if ! kill -0 "$ffmpeg_pid" 2>/dev/null; then break; fi
   sleep 0.25
 done
 if [[ "$hls_ready" != 1 ]]; then
