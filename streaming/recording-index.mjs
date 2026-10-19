@@ -78,8 +78,41 @@ const server = createServer(async (req, res) => {
       if (!info.isFile()) return send(res, 404, { error: "Not found" });
       const ext = path.extname(actual).toLowerCase();
       const type = ext === ".mp4" ? "video/mp4" : ext === ".mkv" ? "video/x-matroska" : "video/mp2t";
-      res.writeHead(200, { "content-type": type, "content-length": info.size, "accept-ranges": "bytes", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" });
-      createReadStream(actual).pipe(res);
+      const range = req.headers.range;
+      let start = 0;
+      let end = info.size - 1;
+      let status = 200;
+      if (range) {
+        const match = /^bytes=(\\d*)-(\\d*)$/.exec(range);
+        if (!match || (!match[1] && !match[2])) {
+          res.writeHead(416, { "content-range": "bytes */" + info.size, "cache-control": "no-store" });
+          res.end();
+          return;
+        }
+        if (!match[1]) {
+          const suffixLength = Number(match[2]);
+          start = Math.max(info.size - suffixLength, 0);
+        } else {
+          start = Number(match[1]);
+          if (match[2]) end = Math.min(Number(match[2]), info.size - 1);
+        }
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= info.size) {
+          res.writeHead(416, { "content-range": "bytes */" + info.size, "cache-control": "no-store" });
+          res.end();
+          return;
+        }
+        status = 206;
+      }
+      const responseHeaders = {
+        "content-type": type,
+        "content-length": end - start + 1,
+        "accept-ranges": "bytes",
+        "cache-control": "public, max-age=300",
+        "x-content-type-options": "nosniff"
+      };
+      if (status === 206) responseHeaders["content-range"] = "bytes " + start + "-" + end + "/" + info.size;
+      res.writeHead(status, responseHeaders);
+      createReadStream(actual, { start, end }).pipe(res);
       return;
     }
     return send(res, 404, { error: "Not found" });
