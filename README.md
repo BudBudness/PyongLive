@@ -10,16 +10,16 @@ PyongLive is a live broadcasting platform by Pyong Recordz Ltd. The first releas
 - Cloudflare D1: event and broadcast metadata
 - Cloudflare R2: assets and supporting files
 - Cloudflare Stream: current production live ingest, playback, and recordings (paid service)
-- MediaMTX: zero-subscription local streaming prototype under `streaming/` (not yet wired into the production Worker)
+- MediaMTX: optional open-source streaming provider adapter and local prototype under `streaming/`; production remains on Cloudflare Stream unless explicitly configured
 - GitHub Actions: continuous integration
 
 ## Status
 
-Initial scaffold in progress. No production resources are provisioned by this repository alone. Configure Cloudflare bindings and secrets before deploying.
+The Worker deploys through GitHub Actions and has a production health check. A complete public MediaMTX deployment still requires a reachable media host, HTTPS HLS delivery, recording-index exposure, and an end-to-end broadcast test.
 
 ## Zero-subscription streaming prototype
 
-See [`streaming/README.md`](streaming/README.md) for the MediaMTX Docker Compose setup, local RTMP ingest, HLS playback, and recording test. MediaMTX itself is free; public always-on hosting and bandwidth are not guaranteed to be free. The production Worker still uses Cloudflare Stream until the provider adapter and replay flow are migrated and verified.
+See [`streaming/README.md`](streaming/README.md) for the MediaMTX Docker Compose setup, local RTMP ingest, HLS playback, and recording test. MediaMTX itself is free; public always-on hosting and bandwidth are not guaranteed to be free. The Worker contains an explicit MediaMTX provider adapter and recording lookup path, but production defaults to Cloudflare Stream. Do not switch providers until the MediaMTX host, public HTTPS playback, recording index, and full live-to-replay flow are verified.
 
 ## Development and deployment
 
