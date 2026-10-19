@@ -7,7 +7,7 @@ This prototype replaces Cloudflare Stream's media plane with the free, open-sour
 - MediaMTX software: free.
 - Local development on a computer you already own: no additional hosting subscription.
 - Public, always-on broadcasting: still requires an always-on reachable host, bandwidth and storage. This repository does not create free hosting or guarantee zero operating cost.
-- This is an infrastructure prototype, not yet a production migration of the Worker API. The current production Worker still creates Cloudflare Stream live inputs. Do not expect the existing Creator button to use MediaMTX until the API provider adapter and replay flow are migrated.
+- The Worker API includes an optional MediaMTX provider adapter and recording lookup path, but production defaults to Cloudflare Stream. Do not switch the provider until a reachable MediaMTX host, HTTPS playback, exposed recording-index service, and end-to-end live-to-replay test are verified.
 
 ## Local test
 
