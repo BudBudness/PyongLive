@@ -44,7 +44,7 @@ const server = createServer(async (req, res) => {
       const auth = req.headers.authorization || "";
       if (!token || auth !== "Bearer " + token) return send(res, 401, { error: "Unauthorized" });
       const eventPath = url.searchParams.get("path") || "";
-      if (!/^event-[a-f0-9]{32,64}$/i.test(eventPath)) return send(res, 400, { error: "Invalid recording path" });
+      if (!/^event-[a-f0-9]{32}-[a-f0-9]{32}$/i.test(eventPath)) return send(res, 400, { error: "Invalid recording path" });
       const dir = safePath([eventPath]);
       if (!dir) return send(res, 400, { error: "Invalid path" });
       let files;
