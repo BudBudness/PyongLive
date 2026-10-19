@@ -52,6 +52,14 @@ try {
   assert.equal(playback.status, 200);
   assert.equal(await playback.text(), "fake-mp4-content");
 
+  const partial = await fetch(result.playbackUrl, { headers: { range: "bytes=0-3" } });
+  assert.equal(partial.status, 206, "recording playback should support byte ranges");
+  assert.equal(partial.headers.get("content-range"), "bytes 0-3/16");
+  assert.equal(await partial.text(), "fake");
+
+  const invalidRange = await fetch(result.playbackUrl, { headers: { range: "bytes=999-1000" } });
+  assert.equal(invalidRange.status, 416, "out-of-bounds byte ranges should be rejected");
+
   const traversal = await fetch(base + "/recordings/%2e%2e/package.json");
   assert.equal(traversal.status, 404);
   console.log("Recording index integration checks passed.");
