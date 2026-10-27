@@ -61,7 +61,7 @@ jobs:
 
       - name: Install dependencies and typecheck
         run: |
-          npm install
+          npm ci
           npm run typecheck
 
       - name: Deploy Worker
