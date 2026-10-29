@@ -57,6 +57,8 @@ jobs:
             echo "- ✅ CF_ACCOUNT_ID: configured (value not displayed)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+          # Push-triggered runs have no workflow_dispatch inputs; default to checking Stream.
+          if [[ -z "${INCLUDE_STREAM:-}" ]]; then INCLUDE_STREAM=true; fi
           echo "config_ok=$config_ok" >> "$GITHUB_OUTPUT"
           echo "include_stream=$INCLUDE_STREAM" >> "$GITHUB_OUTPUT"
 
