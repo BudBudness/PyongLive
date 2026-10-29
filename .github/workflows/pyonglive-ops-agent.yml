@@ -118,7 +118,7 @@ jobs:
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Expected resources" >> "$GITHUB_STEP_SUMMARY"
-          echo "The configured Worker is `pyonglive-api`, D1 database is `pyonglive-db`, and R2 bucket is `pyonglive-assets`." >> "$GITHUB_STEP_SUMMARY"
+          echo 'The configured Worker is `pyonglive-api`, D1 database is `pyonglive-db`, and R2 bucket is `pyonglive-assets`.' >> "$GITHUB_STEP_SUMMARY"
           echo "This audit checks API access/inventory; it does not deploy the Worker or prove ingest/playback/replay." >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$failures" -gt 0 ]]; then
