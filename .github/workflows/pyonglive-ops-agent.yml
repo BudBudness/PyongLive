@@ -1,6 +1,10 @@
 name: PyongLIVE Setup & Operations Agent
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/pyonglive-ops-agent.yml"
   workflow_dispatch:
     inputs:
       include_stream_check:
