@@ -121,7 +121,7 @@ jobs:
 
             const publishUrl = started.ingest.url.replace(/\/$/, "") + "/" + started.ingest.streamKey;
             ffmpeg = spawn("ffmpeg", [
-              "-hide_banner", "-loglevel", "debug", "-re",
+              "-4", "-hide_banner", "-loglevel", "debug", "-re",
               "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30",
               "-re", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100",
               "-t", "180", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
