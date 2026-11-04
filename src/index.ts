@@ -14,7 +14,7 @@ interface Env {
   MEDIAMTX_RECORDING_INDEX_TOKEN?: string;
 }
 
-type EventStatus = "scheduled" | "live" | "ended";
+type EventStatus = "scheduled" | "preparing" | "live" | "ending" | "ended" | "replay_ready";
 
 interface EventRecord {
   id: string;
@@ -141,13 +141,13 @@ async function resolveReplay(env: Env, event: EventRecord) {
     const response = await fetch(endpoint, {
       headers: { authorization: "Bearer " + indexToken }
     });
+    if (response.status === 404) return { ready: false as const, reason: "processing" as const };
+    if (!response.ok) throw new Error("Could not query MediaMTX recording index");
     const payload = await response.json() as {
       ready?: boolean;
       file?: string;
       playbackUrl?: string;
     };
-    if (response.status === 404) return { ready: false as const, reason: "processing" as const };
-    if (!response.ok) throw new Error("Could not query MediaMTX recording index");
     if (!payload.ready || !payload.file || !payload.playbackUrl) {
       return { ready: false as const, reason: "processing" as const };
     }
@@ -201,6 +201,74 @@ async function resolveReplay(env: Env, event: EventRecord) {
   return { ready: true as const, replayUid: recording.uid, playbackUrl };
 }
 
+async function cloudflareLiveState(env: Env, event: EventRecord): Promise<boolean | null> {
+  if (!event.stream_uid || event.stream_uid.startsWith("mediamtx:")) return null;
+  let hlsUrl = event.playback_url;
+  if (!hlsUrl) {
+    const endpoint = "https://api.cloudflare.com/client/v4/accounts/" +
+      encodeURIComponent(env.CF_ACCOUNT_ID) + "/stream/live_inputs/" +
+      encodeURIComponent(event.stream_uid);
+    const response = await fetch(endpoint, {
+      headers: { authorization: "Bearer " + env.CF_STREAM_API_TOKEN }
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as { success?: boolean; result?: { playback?: { hls?: string } } };
+    if (!payload.success) return null;
+    hlsUrl = payload.result?.playback?.hls ?? null;
+  }
+  if (!hlsUrl) return null;
+  const lifecycleUrl = hlsUrl.replace(/\/manifest\/video\.m3u8$/, "/lifecycle");
+  const response = await fetch(lifecycleUrl, {
+    headers: { authorization: "Bearer " + env.CF_STREAM_API_TOKEN }
+  });
+  if (!response.ok) return null;
+  const payload = await response.json() as { isInput?: boolean; live?: boolean; videoUID?: string | null };
+  if (payload.isInput !== true || typeof payload.live !== "boolean") return null;
+  return payload.live;
+}
+
+async function mediaMTXLiveState(event: EventRecord): Promise<boolean | null> {
+  if (!event.playback_url) return null;
+  const response = await fetch(event.playback_url, {
+    headers: { accept: "application/vnd.apple.mpegurl, application/x-mpegURL" }
+  });
+  if (!response.ok) return null;
+  const playlist = await response.text();
+  if (!playlist.startsWith("#EXTM3U")) return null;
+  return !/#EXT-X-ENDLIST\b/.test(playlist);
+}
+
+async function streamLiveState(env: Env, event: EventRecord): Promise<boolean | null> {
+  return event.stream_uid?.startsWith("mediamtx:")
+    ? mediaMTXLiveState(event)
+    : cloudflareLiveState(env, event);
+}
+
+async function refreshEventLifecycle(env: Env, event: EventRecord): Promise<EventRecord> {
+  if (event.status === "preparing" || event.status === "live") {
+    const live = await streamLiveState(env, event).catch(() => null);
+    if (live === true && event.status === "preparing") {
+      await env.DB.prepare(
+        "UPDATE events SET status = 'live', started_at = COALESCE(started_at, ?) WHERE id = ? AND status = 'preparing'"
+      ).bind(new Date().toISOString(), event.id).run();
+    } else if (live === false && event.status === "live") {
+      await env.DB.prepare(
+        "UPDATE events SET status = 'ending', ended_at = COALESCE(ended_at, ?) WHERE id = ? AND status = 'live'"
+      ).bind(new Date().toISOString(), event.id).run();
+    }
+  }
+  let current = await readEvent(env, event.id) ?? event;
+  if (current.status === "ending") {
+    const replay = await resolveReplay(env, current).catch(() => ({ ready: false as const, reason: "processing" as const }));
+    if (replay.ready) {
+      await env.DB.prepare("UPDATE events SET status = 'replay_ready' WHERE id = ? AND status = 'ending'")
+        .bind(current.id).run();
+      current = await readEvent(env, event.id) ?? current;
+    }
+  }
+  return current;
+}
+
 const appHtml = `<!doctype html>
 <html lang="en">
 <head>
@@ -247,13 +315,15 @@ async function api(path,options={}){const headers={"content-type":"application/j
 function make(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
 async function loadEvents(){const root=el("events");try{const data=await api("/api/events");root.replaceChildren();if(!data.events.length){root.append(make("p","muted","No events yet. Create the first event in Creator controls."));return}
 for(const event of data.events){const card=make("article","card");card.append(make("span","status",event.status));card.append(make("h3","",event.title));if(event.description)card.append(make("p","",event.description));if(event.scheduledAt)card.append(make("small","", "Scheduled: "+new Date(event.scheduledAt).toLocaleString()));const actions=make("div","");
-if(event.status==="scheduled"){const start=make("button","","Start broadcast");start.onclick=()=>startEvent(event.id);actions.append(start)}
+if(event.status==="scheduled"){const start=make("button","","Prepare broadcast");start.onclick=()=>startEvent(event.id);actions.append(start)}
+if(event.status==="preparing"){card.append(make("p","muted","Waiting for broadcaster to connect. Ingest details are available to the event administrator."))}
 if(event.status==="live"){const watch=make("button","","Watch live");watch.onclick=()=>watchEvent(event);actions.append(watch);const end=make("button","secondary","End broadcast");end.onclick=()=>endEvent(event.id);actions.append(end)}
-if(event.status==="ended"){const replay=make("button","","Check replay");replay.onclick=()=>checkReplay(event.id,event.title);actions.append(replay)}
+if(event.status==="ending"||event.status==="ended"){const replay=make("button","","Check replay");replay.onclick=()=>checkReplay(event.id,event.title);actions.append(replay)}
+if(event.status==="replay_ready"){const replay=make("button","","Watch replay");replay.onclick=()=>watchEvent({title:event.title,playerUrl:event.playerUrl,status:"ended"});actions.append(replay)}
 card.append(actions);root.append(card)}
 }catch(error){root.replaceChildren(make("p","muted","Could not load events: "+error.message))}}
 async function createEvent(e){e.preventDefault();el("admin-message").textContent="";try{const body={title:el("title").value,description:el("description").value||null,scheduledAt:el("scheduled").value?new Date(el("scheduled").value).toISOString():null};await api("/api/events",{method:"POST",admin:true,body:JSON.stringify(body)});el("create-form").reset();el("admin-message").textContent="Event created.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
-async function startEvent(id){try{const data=await api("/api/events/"+id+"/start",{method:"POST",admin:true});lastIngest="RTMPS URL: "+(data.ingest.url||"not provided")+"\nStream key: "+(data.ingest.streamKey||"not provided")+"\nPlayback: "+(data.playbackUrl||"configure STREAM_CUSTOMER_CODE");el("ingest-details").textContent=lastIngest;el("ingest-panel").classList.remove("hidden");el("admin-message").textContent="Live input created. Start streaming using the ingest details.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
+async function startEvent(id){try{const data=await api("/api/events/"+id+"/start",{method:"POST",admin:true});lastIngest="RTMPS URL: "+(data.ingest.url||"not provided")+"\nStream key: "+(data.ingest.streamKey||"not provided")+"\nPlayback: "+(data.playbackUrl||"configure STREAM_CUSTOMER_CODE");el("ingest-details").textContent=lastIngest;el("ingest-panel").classList.remove("hidden");el("admin-message").textContent="Ingest input prepared. Start your encoder; the event becomes live when the stream provider detects the broadcast.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
 async function endEvent(id){if(!confirm("End this event? Stop the encoder first, then confirm."))return;try{await api("/api/events/"+id+"/end",{method:"POST",admin:true});el("admin-message").textContent="Event ended. Recording may take a short time to become available.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
 let activeHls=null;
 function watchEvent(event){
@@ -314,9 +384,10 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   if (request.method === "GET" && path === "/api/events") {
     const result = await env.DB.prepare(
-      "SELECT * FROM events ORDER BY CASE WHEN status = 'live' THEN 0 WHEN status = 'scheduled' THEN 1 ELSE 2 END, scheduled_at ASC, created_at DESC LIMIT 100"
+      "SELECT * FROM events ORDER BY CASE WHEN status = 'live' THEN 0 WHEN status = 'preparing' THEN 1 WHEN status = 'scheduled' THEN 2 WHEN status = 'ending' THEN 3 WHEN status = 'replay_ready' THEN 4 ELSE 5 END, scheduled_at ASC, created_at DESC LIMIT 100"
     ).all<EventRecord>();
-    return json({ events: (result.results ?? []).map(publicEvent) });
+    const events = await Promise.all((result.results ?? []).map((event) => refreshEventLifecycle(env, event)));
+    return json({ events: events.map(publicEvent) });
   }
 
   if (request.method === "POST" && path === "/api/events") {
@@ -349,7 +420,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   if (request.method === "GET" && replayMatch) {
     const event = await readEvent(env, replayMatch[1]);
     if (!event) return json({ error: "Event not found" }, 404);
-    if (event.status !== "ended") return json({ error: "Replay is available after the event ends" }, 409);
+    if (!["ending", "ended", "replay_ready"].includes(event.status)) return json({ error: "Replay is available after the event ends" }, 409);
     if (event.replay_uid) {
       return json({
         status: "ready",
@@ -361,6 +432,8 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     try {
       const replay = await resolveReplay(env, event);
       if (!replay.ready) return json({ status: "processing", message: replay.reason === "recording_index_not_configured" ? "MediaMTX is recording locally, but recording index settings are not configured." : "Recording is not ready yet" }, 202);
+      await env.DB.prepare("UPDATE events SET status = 'replay_ready' WHERE id = ? AND status IN ('ending', 'ended')")
+        .bind(event.id).run();
       return json({
         status: "ready",
         replayUid: replay.replayUid,
@@ -368,7 +441,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
         playerUrl: replay.playbackUrl?.replace("/manifest/video.m3u8", "/iframe") ?? null
       });
     } catch {
-      return json({ error: "Could not check recording status. Verify Cloudflare Stream read permissions." }, 502);
+      return json({ error: "Could not check recording status. Verify the selected recording provider and its credentials." }, 502);
     }
   }
 
@@ -379,15 +452,14 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     const event = await readEvent(env, id);
     if (!event) return json({ error: "Event not found" }, 404);
 
-    if (request.method === "GET" && !action) return json({ event: publicEvent(event) });
+    if (request.method === "GET" && !action) return json({ event: publicEvent(await refreshEventLifecycle(env, event)) });
     if (request.method !== "POST" || !action) return json({ error: "Method not allowed" }, 405);
 
     const denied = requireAdmin(request, env);
     if (denied) return denied;
 
     if (action === "start") {
-      if (event.status === "ended") return json({ error: "Ended events cannot be restarted" }, 409);
-      if (event.status === "live" && event.stream_uid) return json({ error: "Event is already live" }, 409);
+      if (event.status !== "scheduled") return json({ error: "Only scheduled events can be started" }, 409);
       const provider = (env.MEDIA_PROVIDER ?? "cloudflare").trim().toLowerCase();
       if (provider !== "cloudflare" && provider !== "mediamtx") return json({ error: "MEDIA_PROVIDER must be cloudflare or mediamtx" }, 500);
       if (provider === "cloudflare" && (!env.CF_ACCOUNT_ID || !env.CF_STREAM_API_TOKEN)) return json({ error: "Cloudflare Stream credentials are not configured" }, 503);
@@ -408,12 +480,12 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
           ? "https://customer-" + env.STREAM_CUSTOMER_CODE + ".cloudflarestream.com/" + liveInput.uid + "/manifest/video.m3u8"
           : null;
       await env.DB.prepare(
-        "UPDATE events SET status = 'live', started_at = ?, stream_uid = ?, playback_url = ? WHERE id = ?"
-      ).bind(new Date().toISOString(), liveInput.uid, playbackUrl, id).run();
+        "UPDATE events SET status = 'preparing', started_at = NULL, stream_uid = ?, playback_url = ? WHERE id = ?"
+      ).bind(liveInput.uid, playbackUrl, id).run();
 
       return json({
         eventId: id,
-        status: "live",
+        status: "preparing",
         provider,
         ingest: { url: liveInput.ingestUrl, streamKey: liveInput.streamKey },
         playbackUrl,
@@ -422,10 +494,24 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }
 
     if (action === "end") {
-      if (event.status !== "live") return json({ error: "Only live events can be ended" }, 409);
-      await env.DB.prepare("UPDATE events SET status = 'ended', ended_at = ? WHERE id = ?")
+      const current = await refreshEventLifecycle(env, event);
+      if (current.status !== "live" && current.status !== "ending") {
+        return json({ error: "Only a confirmed live broadcast can be ended" }, 409);
+      }
+      const live = await streamLiveState(env, current).catch(() => null);
+      if (live === null) return json({ error: "Could not verify broadcast state; retry shortly" }, 503);
+      if (live) return json({ error: "Broadcast is still active. Stop the encoder before ending the event." }, 409);
+      await env.DB.prepare("UPDATE events SET status = 'ending', ended_at = COALESCE(ended_at, ?) WHERE id = ?")
         .bind(new Date().toISOString(), id).run();
-      return json({ eventId: id, status: "ended", playbackUrl: event.playback_url, replayStatus: "processing" });
+      const endingEvent = await readEvent(env, id);
+      if (endingEvent) {
+        const replay = await resolveReplay(env, endingEvent).catch(() => ({ ready: false as const, reason: "processing" as const }));
+        if (replay.ready) {
+          await env.DB.prepare("UPDATE events SET status = 'replay_ready' WHERE id = ?").bind(id).run();
+          return json({ eventId: id, status: "replay_ready", replayStatus: "ready", playbackUrl: replay.playbackUrl });
+        }
+      }
+      return json({ eventId: id, status: "ending", replayStatus: "processing" }, 202);
     }
   }
 
