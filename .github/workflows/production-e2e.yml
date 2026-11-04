@@ -2,10 +2,10 @@ name: PyongLive Production End-to-End Broadcast Test
 
 on:
   workflow_dispatch:
-  push:
+  workflow_run:
+    workflows: ["Deploy PyongLive Worker"]
+    types: [completed]
     branches: [main]
-    paths:
-      - ".github/workflows/production-e2e.yml"
 
 permissions:
   contents: read
@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   broadcast-e2e:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -89,7 +90,7 @@ jobs:
             console.log("PASS: event created and persisted in D1.");
 
             const started = await api(`/api/events/${eventId}/start`, { method: "POST" });
-            if (started.status !== "live" || !started.ingest?.url || !started.ingest?.streamKey) throw new Error("Start endpoint did not return live ingest credentials");
+            if (started.status !== "preparing" || !started.ingest?.url || !started.ingest?.streamKey) throw new Error("Start endpoint did not return preparing state and live ingest credentials");
             if (!started.playbackUrl) throw new Error("Worker STREAM_CUSTOMER_CODE is missing; cannot verify viewer playback");
             playbackUrl = started.playbackUrl;
             streamUid = playbackUrl.match(/cloudflarestream\.com\/([^/]+)\/manifest\/video\.m3u8/)?.[1];
@@ -195,12 +196,15 @@ jobs:
             });
             ffmpeg = null;
 
-            const liveEvent = await api(`/api/events/${eventId}`);
-            if (liveEvent.event?.status !== "live") throw new Error("Event live state was not persisted in D1");
-            console.log("PASS: live event state persisted in D1.");
-
-            await api(`/api/events/${eventId}/end`, { method: "POST" });
-            console.log("PASS: event ended through the production API.");
+            const stoppedEvent = await waitFor("event lifecycle detects encoder stop", async () => {
+              const snapshot = await api(`/api/events/${eventId}`);
+              return ["ending", "replay_ready"].includes(snapshot.event?.status) ? snapshot : false;
+            }, 12, 5000);
+            console.log("PASS: stopped broadcast transitioned to " + stoppedEvent.event.status + ".");
+            if (stoppedEvent.event.status === "ending") {
+              await api(`/api/events/${eventId}/end`, { method: "POST" });
+              console.log("PASS: event end confirmed through the production API.");
+            }
 
             await waitFor("recording processed and replay persisted", async () => {
               const replay = await api(`/api/events/${eventId}/replay`);
