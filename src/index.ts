@@ -218,7 +218,9 @@ async function cloudflareLiveState(env: Env, event: EventRecord): Promise<boolea
   }
   if (!hlsUrl) return null;
   const lifecycleUrl = hlsUrl.replace(/\/manifest\/video\.m3u8$/, "/lifecycle");
-  const response = await fetch(lifecycleUrl);
+  const response = await fetch(lifecycleUrl, {
+    headers: { authorization: "Bearer " + env.CF_STREAM_API_TOKEN }
+  });
   if (!response.ok) return null;
   const payload = await response.json() as { isInput?: boolean; live?: boolean; videoUID?: string | null };
   if (payload.isInput !== true || typeof payload.live !== "boolean") return null;
