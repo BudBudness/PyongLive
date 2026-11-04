@@ -141,13 +141,13 @@ async function resolveReplay(env: Env, event: EventRecord) {
     const response = await fetch(endpoint, {
       headers: { authorization: "Bearer " + indexToken }
     });
+    if (response.status === 404) return { ready: false as const, reason: "processing" as const };
+    if (!response.ok) throw new Error("Could not query MediaMTX recording index");
     const payload = await response.json() as {
       ready?: boolean;
       file?: string;
       playbackUrl?: string;
     };
-    if (response.status === 404) return { ready: false as const, reason: "processing" as const };
-    if (!response.ok) throw new Error("Could not query MediaMTX recording index");
     if (!payload.ready || !payload.file || !payload.playbackUrl) {
       return { ready: false as const, reason: "processing" as const };
     }
@@ -227,9 +227,26 @@ async function cloudflareLiveState(env: Env, event: EventRecord): Promise<boolea
   return payload.live;
 }
 
+async function mediaMTXLiveState(event: EventRecord): Promise<boolean | null> {
+  if (!event.playback_url) return null;
+  const response = await fetch(event.playback_url, {
+    headers: { accept: "application/vnd.apple.mpegurl, application/x-mpegURL" }
+  });
+  if (!response.ok) return null;
+  const playlist = await response.text();
+  if (!playlist.startsWith("#EXTM3U")) return null;
+  return !/#EXT-X-ENDLIST\\b/.test(playlist);
+}
+
+async function streamLiveState(env: Env, event: EventRecord): Promise<boolean | null> {
+  return event.stream_uid?.startsWith("mediamtx:")
+    ? mediaMTXLiveState(event)
+    : cloudflareLiveState(env, event);
+}
+
 async function refreshEventLifecycle(env: Env, event: EventRecord): Promise<EventRecord> {
   if (event.status === "preparing" || event.status === "live") {
-    const live = await cloudflareLiveState(env, event).catch(() => null);
+    const live = await streamLiveState(env, event).catch(() => null);
     if (live === true && event.status === "preparing") {
       await env.DB.prepare(
         "UPDATE events SET status = 'live', started_at = COALESCE(started_at, ?) WHERE id = ? AND status = 'preparing'"
@@ -306,7 +323,7 @@ if(event.status==="replay_ready"){const replay=make("button","","Watch replay");
 card.append(actions);root.append(card)}
 }catch(error){root.replaceChildren(make("p","muted","Could not load events: "+error.message))}}
 async function createEvent(e){e.preventDefault();el("admin-message").textContent="";try{const body={title:el("title").value,description:el("description").value||null,scheduledAt:el("scheduled").value?new Date(el("scheduled").value).toISOString():null};await api("/api/events",{method:"POST",admin:true,body:JSON.stringify(body)});el("create-form").reset();el("admin-message").textContent="Event created.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
-async function startEvent(id){try{const data=await api("/api/events/"+id+"/start",{method:"POST",admin:true});lastIngest="RTMPS URL: "+(data.ingest.url||"not provided")+"\nStream key: "+(data.ingest.streamKey||"not provided")+"\nPlayback: "+(data.playbackUrl||"configure STREAM_CUSTOMER_CODE");el("ingest-details").textContent=lastIngest;el("ingest-panel").classList.remove("hidden");el("admin-message").textContent="Ingest input prepared. Start your encoder; the event becomes live when Cloudflare detects the broadcast.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
+async function startEvent(id){try{const data=await api("/api/events/"+id+"/start",{method:"POST",admin:true});lastIngest="RTMPS URL: "+(data.ingest.url||"not provided")+"\nStream key: "+(data.ingest.streamKey||"not provided")+"\nPlayback: "+(data.playbackUrl||"configure STREAM_CUSTOMER_CODE");el("ingest-details").textContent=lastIngest;el("ingest-panel").classList.remove("hidden");el("admin-message").textContent="Ingest input prepared. Start your encoder; the event becomes live when the stream provider detects the broadcast.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
 async function endEvent(id){if(!confirm("End this event? Stop the encoder first, then confirm."))return;try{await api("/api/events/"+id+"/end",{method:"POST",admin:true});el("admin-message").textContent="Event ended. Recording may take a short time to become available.";await loadEvents()}catch(error){el("admin-message").textContent=error.message}}
 let activeHls=null;
 function watchEvent(event){
@@ -424,7 +441,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
         playerUrl: replay.playbackUrl?.replace("/manifest/video.m3u8", "/iframe") ?? null
       });
     } catch {
-      return json({ error: "Could not check recording status. Verify Cloudflare Stream read permissions." }, 502);
+      return json({ error: "Could not check recording status. Verify the selected recording provider and its credentials." }, 502);
     }
   }
 
@@ -481,8 +498,8 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       if (current.status !== "live" && current.status !== "ending") {
         return json({ error: "Only a confirmed live broadcast can be ended" }, 409);
       }
-      const live = await cloudflareLiveState(env, current).catch(() => null);
-      if (live === null) return json({ error: "Could not verify Cloudflare broadcast state; retry shortly" }, 503);
+      const live = await streamLiveState(env, current).catch(() => null);
+      if (live === null) return json({ error: "Could not verify broadcast state; retry shortly" }, 503);
       if (live) return json({ error: "Broadcast is still active. Stop the encoder before ending the event." }, 409);
       await env.DB.prepare("UPDATE events SET status = 'ending', ended_at = COALESCE(ended_at, ?) WHERE id = ?")
         .bind(new Date().toISOString(), id).run();
