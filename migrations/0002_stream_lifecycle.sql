@@ -1,5 +1,3 @@
-PRAGMA foreign_keys=OFF;
-
 CREATE TABLE events_new (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL CHECK (length(title) BETWEEN 3 AND 160),
@@ -32,5 +30,3 @@ CREATE INDEX IF NOT EXISTS idx_events_status_schedule
 
 CREATE INDEX IF NOT EXISTS idx_events_created
   ON events (created_at DESC);
-
-PRAGMA foreign_keys=ON;
