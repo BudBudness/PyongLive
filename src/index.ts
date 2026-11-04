@@ -217,7 +217,7 @@ async function cloudflareLiveState(env: Env, event: EventRecord): Promise<boolea
     hlsUrl = payload.result?.playback?.hls ?? null;
   }
   if (!hlsUrl) return null;
-  const lifecycleUrl = hlsUrl.replace(/\\/manifest\\/video\\.m3u8$/, "/lifecycle");
+  const lifecycleUrl = hlsUrl.replace(/\/manifest\/video\.m3u8$/, "/lifecycle");
   const response = await fetch(lifecycleUrl);
   if (!response.ok) return null;
   const payload = await response.json() as { isInput?: boolean; live?: boolean; videoUID?: string | null };
@@ -440,8 +440,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     if (denied) return denied;
 
     if (action === "start") {
-      if (event.status === "ended") return json({ error: "Ended events cannot be restarted" }, 409);
-      if (event.status === "live" && event.stream_uid) return json({ error: "Event is already live" }, 409);
+      if (event.status !== "scheduled") return json({ error: "Only scheduled events can be started" }, 409);
       const provider = (env.MEDIA_PROVIDER ?? "cloudflare").trim().toLowerCase();
       if (provider !== "cloudflare" && provider !== "mediamtx") return json({ error: "MEDIA_PROVIDER must be cloudflare or mediamtx" }, 500);
       if (provider === "cloudflare" && (!env.CF_ACCOUNT_ID || !env.CF_STREAM_API_TOKEN)) return json({ error: "Cloudflare Stream credentials are not configured" }, 503);
