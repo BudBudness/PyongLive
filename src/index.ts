@@ -235,7 +235,7 @@ async function mediaMTXLiveState(event: EventRecord): Promise<boolean | null> {
   if (!response.ok) return null;
   const playlist = await response.text();
   if (!playlist.startsWith("#EXTM3U")) return null;
-  return !/#EXT-X-ENDLIST\\b/.test(playlist);
+  return !/#EXT-X-ENDLIST\b/.test(playlist);
 }
 
 async function streamLiveState(env: Env, event: EventRecord): Promise<boolean | null> {
