@@ -91,3 +91,5 @@ jobs:
           done
           curl --fail --silent --show-error https://pyonglive-api.eddiebillions85.workers.dev/api/events -o /tmp/events.json
           node -e 'const x=require("/tmp/events.json");if(!Array.isArray(x.events))process.exit(1);console.log("PASS: production events API returned valid JSON with "+x.events.length+" events.")'
+          curl --fail --silent --show-error https://pyonglive-api.eddiebillions85.workers.dev/api/webhooks/cloudflare/stream -o /tmp/stream-webhook-health.json
+          node -e 'const x=require("/tmp/stream-webhook-health.json");if(x.ok!==true||x.endpoint!=="cloudflare-stream-live-webhook"||typeof x.secretConfigured!=="boolean")process.exit(1);console.log("PASS: Cloudflare Stream webhook route is deployed; secretConfigured="+x.secretConfigured+".")'
