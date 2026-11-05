@@ -22,10 +22,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install FFmpeg
+      - name: Verify FFmpeg
+        timeout-minutes: 3
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes ffmpeg
+          set -euo pipefail
+          if command -v ffmpeg >/dev/null 2>&1; then
+            echo "Using FFmpeg already installed on the GitHub-hosted runner."
+          else
+            echo "FFmpeg is not preinstalled; installing with bounded package-manager timeouts."
+            sudo timeout 120s apt-get update -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20
+            sudo timeout 60s apt-get install --yes --no-install-recommends ffmpeg
+          fi
+          command -v ffmpeg
+          ffmpeg -hide_banner -version | head -n 2
 
       - name: Verify creator API, live ingest, viewer playback, and replay
         env:
