@@ -1,6 +1,7 @@
 name: Deploy PyongLive Worker
 # Production E2E is triggered after each successful deployment.
 # Re-run deployment to validate the bounded FFmpeg setup in production E2E.
+# Trigger isolated E2E concurrency group.
 
 on:
   workflow_dispatch:
