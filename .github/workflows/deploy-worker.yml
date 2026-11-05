@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           npx wrangler d1 migrations list pyonglive-db --remote
-          npx wrangler d1 migrations apply pyonglive-db --remote --yes
+          npx wrangler d1 migrations apply pyonglive-db --remote
           npx wrangler d1 execute pyonglive-db --remote --command "SELECT name, type FROM sqlite_master WHERE type IN ('table','index') ORDER BY type, name; SELECT * FROM d1_migrations ORDER BY id;"
 
       - name: Deploy Worker
