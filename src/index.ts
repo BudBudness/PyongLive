@@ -3,6 +3,7 @@ interface Env {
   ASSETS: R2Bucket;
   CF_ACCOUNT_ID: string;
   CF_STREAM_API_TOKEN: string;
+  CF_STREAM_WEBHOOK_SECRET?: string;
   ADMIN_API_TOKEN: string;
   STREAM_CUSTOMER_CODE: string;
   MEDIA_PROVIDER?: string;
@@ -362,6 +363,114 @@ loadEvents();setInterval(loadEvents,15000);
 async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, "") || "/";
+
+function constantTimeEqual(a: string, b: string): boolean {
+  const left = new TextEncoder().encode(a);
+  const right = new TextEncoder().encode(b);
+  let difference = left.length ^ right.length;
+  const length = Math.max(left.length, right.length);
+  for (let i = 0; i < length; i++) {
+    difference |= (left[i] ?? 0) ^ (right[i] ?? 0);
+  }
+  return difference === 0;
+}
+
+async function receiveCloudflareStreamWebhook(request: Request, env: Env): Promise<Response> {
+  const expected = env.CF_STREAM_WEBHOOK_SECRET?.trim() ?? "";
+  if (!expected) return json({ error: "Webhook receiver is not configured" }, 503);
+
+  const supplied = request.headers.get("cf-webhook-auth") ?? "";
+  if (!supplied || !constantTimeEqual(supplied, expected)) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+
+  const declaredLength = Number(request.headers.get("content-length") ?? "0");
+  if (declaredLength > 65536) return json({ error: "Payload too large" }, 413);
+
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > 65536) {
+    return json({ error: "Payload too large" }, 413);
+  }
+
+  let payload: {
+    name?: unknown;
+    text?: unknown;
+    ts?: unknown;
+    data?: {
+      notification_name?: unknown;
+      input_id?: unknown;
+      event_type?: unknown;
+      updated_at?: unknown;
+      live_input_errored?: {
+        error?: { code?: unknown; message?: unknown };
+        video_codec?: unknown;
+        audio_codec?: unknown;
+      };
+    };
+  };
+  try {
+    payload = JSON.parse(raw) as typeof payload;
+  } catch {
+    return json({ error: "Payload must be valid JSON" }, 400);
+  }
+
+  // Cloudflare's "Test delivery" uses a text-only sample payload.
+  const data = payload.data;
+  if (!data && typeof payload.text === "string" && payload.text.includes("webhook is configured properly")) {
+    return json({ ok: true, test: true });
+  }
+
+  const inputId = typeof data?.input_id === "string" ? data.input_id.trim() : "";
+  const eventType = typeof data?.event_type === "string" ? data.event_type : "";
+  const allowed = new Set(["live_input.connected", "live_input.disconnected", "live_input.errored"]);
+  if (!inputId || !/^[a-f0-9]{32}$/i.test(inputId) || !allowed.has(eventType)) {
+    return json({ error: "Unsupported or malformed Stream Live notification" }, 400);
+  }
+
+  const error = data?.live_input_errored?.error;
+  const errorCode = typeof error?.code === "string" ? error.code : null;
+  const errorMessage = typeof error?.message === "string" ? error.message : null;
+  const receivedAt = new Date().toISOString();
+  const eventUpdatedAt = typeof data?.updated_at === "string" ? data.updated_at : null;
+
+  await env.DB.prepare(
+    "INSERT INTO stream_webhook_events (id, input_id, event_type, event_updated_at, error_code, error_message, payload_json, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    crypto.randomUUID(),
+    inputId,
+    eventType,
+    eventUpdatedAt,
+    errorCode,
+    errorMessage,
+    raw,
+    receivedAt
+  ).run();
+
+  if (eventType === "live_input.connected") {
+    await env.DB.prepare(
+      "UPDATE events SET status = 'live', started_at = COALESCE(started_at, ?) WHERE stream_uid = ? AND status = 'preparing'"
+    ).bind(receivedAt, inputId).run();
+  } else if (eventType === "live_input.disconnected") {
+    await env.DB.prepare(
+      "UPDATE events SET status = 'ending', ended_at = COALESCE(ended_at, ?) WHERE stream_uid = ? AND status IN ('preparing', 'live')"
+    ).bind(receivedAt, inputId).run();
+  }
+
+  return json({ ok: true, received: true, eventType, inputId });
+}
+
+  if (path === "/api/webhooks/cloudflare/stream") {
+    if (request.method === "GET") {
+      return json({
+        ok: true,
+        service: "pyonglive-api",
+        endpoint: "cloudflare-stream-live-webhook",
+        secretConfigured: Boolean(env.CF_STREAM_WEBHOOK_SECRET?.trim())
+      });
+    }
+    if (request.method === "POST") return receiveCloudflareStreamWebhook(request, env);
+    return json({ error: "Method not allowed" }, 405);
+  }
 
   if (request.method === "OPTIONS") {
     return new Response(null, {
