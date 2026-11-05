@@ -10,6 +10,7 @@ on:
     paths:
       - ".github/workflows/deploy-worker.yml"
       - "src/**"
+      - "migrations/**"
       - "wrangler.jsonc"
       - "package.json"
       - "package-lock.json"
