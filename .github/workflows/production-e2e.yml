@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pyonglive-production-e2e
+  group: pyonglive-production-e2e-v2
   cancel-in-progress: false
 
 jobs:
