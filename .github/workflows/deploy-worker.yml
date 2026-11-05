@@ -29,7 +29,7 @@ jobs:
         with:
           node-version: 22
 
-      # Account-level discovery is followed by Wrangler's authoritative deploy check.
+      # Validate token identity here; Wrangler performs the authoritative resource/write authorization check.
       - name: Validate deployment credentials
         env:
           CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -41,15 +41,6 @@ jobs:
           [[ "$CF_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]] || { echo "::error::CF_ACCOUNT_ID must be 32 hexadecimal characters."; exit 1; }
           verify="$(curl -sS https://api.cloudflare.com/client/v4/user/tokens/verify -H "Authorization: Bearer $CF_API_TOKEN")"
           echo "$verify" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const x=JSON.parse(s);if(!x.success||x.result?.status!=="active"){console.error("::error::Cloudflare API token verification failed or token is not active.");process.exit(1)}console.log("PASS: Cloudflare API token is active.")}catch{console.error("::error::Cloudflare token verification returned invalid JSON.");process.exit(1)}})'
-          scripts="$(curl -sS -w '\n%{http_code}' "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/workers/scripts" -H "Authorization: Bearer $CF_API_TOKEN")"
-          code="$(printf '%s\n' "$scripts" | tail -n1)"
-          body="$(printf '%s\n' "$scripts" | sed '$d')"
-          if [[ "$code" != "200" ]]; then
-            echo "::error::Cloudflare token cannot list Workers Scripts in the configured account (HTTP $code). Check token account scope and Workers Scripts permissions. Token value was not printed."
-            printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{for(const e of (JSON.parse(s).errors||[]))console.log("Cloudflare API: "+e.message)}catch{}})'
-            exit 1
-          fi
-          echo "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const x=JSON.parse(s);if(!x.success||!Array.isArray(x.result)||!x.result.some(w=>w.id==="pyonglive-api")){console.error("::error::pyonglive-api was not found in the configured account Workers Scripts list.");process.exit(1)}console.log("PASS: pyonglive-api exists in the configured account.")}catch{console.error("::error::Workers Scripts list returned invalid JSON.");process.exit(1)}})'
 
       - name: Install dependencies and typecheck
         run: |
