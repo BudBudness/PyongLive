@@ -178,10 +178,18 @@ jobs:
                 const detail = ffmpegStderrHead.trim() + "\n--- FFmpeg stderr tail ---\n" + ffmpegStderr.trim();
                 throw new Error(`FFmpeg exited early (${ffmpeg.exitCode})${detail ? `; stderr: ${detail}` : "; no FFmpeg stderr captured"}`);
               }
-              const response = await fetch(started.playbackUrl);
+              const response = await fetch(started.playbackUrl, { signal: AbortSignal.timeout(8000) });
               if (!response.ok) return false;
-              const body = await response.text();
-              return body.includes("#EXTM3U") && body.includes("#EXTINF");
+              const lines = (await response.text()).trim().split(/\r?\n/);
+              if (lines[0] !== "#EXTM3U") return false;
+              if (lines.some(line => line.startsWith("#EXTINF:"))) return true;
+              const variantIndex = lines.findIndex(line => line.startsWith("#EXT-X-STREAM-INF:"));
+              if (variantIndex === -1 || !lines[variantIndex + 1] || lines[variantIndex + 1].startsWith("#")) return false;
+              const variantUrl = new URL(lines[variantIndex + 1], response.url);
+              const variant = await fetch(variantUrl, { signal: AbortSignal.timeout(8000) });
+              if (!variant.ok) return false;
+              const media = (await variant.text()).trim().split(/\r?\n/);
+              return media[0] === "#EXTM3U" && media.some(line => line.startsWith("#EXTINF:"));
             }, 12, 5000);
 
             console.log("PASS: viewer playback manifest is reachable during the live broadcast.");
