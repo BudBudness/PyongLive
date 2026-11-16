@@ -18,7 +18,7 @@ test("follows a master playlist to its relative media playlist", async () => {
   const fetcher = async url => {
     calls.push(String(url));
     if (calls.length === 1) {
-      return response("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1200000\nvariants/720p.m3u8\n");
+      return response("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1200000\nvariants/720p.m3u8\n", "https://stream.example/live/master.m3u8");
     }
     return response("#EXTM3U\n#EXTINF:6.0,\nsegment-1.ts\n", String(url));
   };
