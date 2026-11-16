@@ -48,6 +48,7 @@ jobs:
 
           node --input-type=module <<'NODE'
           import { spawn } from "node:child_process";
+          import { hasPlayableHlsManifest } from "./scripts/hls-manifest.mjs";
 
           const base = process.env.API_BASE;
           // GitHub secrets may accidentally include surrounding CR/LF from terminal copy/paste.
@@ -189,10 +190,7 @@ jobs:
                 const detail = ffmpegStderrHead.trim() + "\n--- FFmpeg stderr tail ---\n" + ffmpegStderr.trim();
                 throw new Error(`FFmpeg exited early (${ffmpeg.exitCode})${detail ? `; stderr: ${detail}` : "; no FFmpeg stderr captured"}`);
               }
-              const response = await fetch(started.playbackUrl);
-              if (!response.ok) return false;
-              const body = await response.text();
-              return body.includes("#EXTM3U") && body.includes("#EXTINF");
+              return await hasPlayableHlsManifest(started.playbackUrl);
             }, 24, 5000);
 
             console.log("PASS: viewer playback manifest is reachable during the live broadcast.");
