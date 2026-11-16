@@ -1,0 +1,29 @@
+name: PyongLive Stream Manifest Tests
+
+on:
+  pull_request:
+    paths:
+      - "scripts/hls-manifest.mjs"
+      - "scripts/hls-manifest.test.mjs"
+      - ".github/workflows/stream-manifest-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/hls-manifest.mjs"
+      - "scripts/hls-manifest.test.mjs"
+      - ".github/workflows/stream-manifest-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  hls-manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test HLS manifest parsing
+        run: node --test scripts/hls-manifest.test.mjs
