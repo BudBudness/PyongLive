@@ -433,10 +433,14 @@ async function receiveCloudflareStreamWebhook(request: Request, env: Env): Promi
   const receivedAt = new Date().toISOString();
   const eventUpdatedAt = typeof data?.updated_at === "string" ? data.updated_at : null;
 
-  await env.DB.prepare(
-    "INSERT INTO stream_webhook_events (id, input_id, event_type, event_updated_at, error_code, error_message, payload_json, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  // Cloudflare may retry webhook deliveries. Hash the exact signed payload so
+  // retries have a stable primary key and cannot apply lifecycle transitions twice.
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  const webhookId = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const inserted = await env.DB.prepare(
+    "INSERT OR IGNORE INTO stream_webhook_events (id, input_id, event_type, event_updated_at, error_code, error_message, payload_json, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(
-    crypto.randomUUID(),
+    webhookId,
     inputId,
     eventType,
     eventUpdatedAt,
@@ -445,6 +449,10 @@ async function receiveCloudflareStreamWebhook(request: Request, env: Env): Promi
     raw,
     receivedAt
   ).run();
+
+  if ((inserted.meta?.changes ?? 0) === 0) {
+    return json({ ok: true, received: true, duplicate: true, eventType, inputId });
+  }
 
   if (eventType === "live_input.connected") {
     await env.DB.prepare(
